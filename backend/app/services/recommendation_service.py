@@ -20,7 +20,7 @@ class RecommendationService:
 
     @staticmethod
     async def calculate_match_score_llm(
-        detected_book: dict[str, Any], user_library: list[Book]
+        detected_book: dict[str, Any], user_library: list[Book], user_id: str
     ) -> tuple[float, str]:
         """
         Calculate match score using LLM with caching.
@@ -28,6 +28,7 @@ class RecommendationService:
         Args:
             detected_book: Book metadata from Google Books
             user_library: List of books in user's library
+            user_id: User ID for deterministic sampling
 
         Returns:
             Tuple of (match_score, explanation)
@@ -47,6 +48,7 @@ class RecommendationService:
         try:
             # Import here to avoid circular imports
             from app.services.llm import get_llm_provider
+            from app.services.llm.base import sample_library_books
 
             # Get LLM provider
             provider = get_llm_provider()
@@ -63,9 +65,12 @@ class RecommendationService:
                 for book in user_library
             ]
 
+            # Sample library books with deterministic shuffling to avoid bias
+            sampled_library = sample_library_books(library_dicts, user_id)
+
             # Get LLM score and explanation
             score, explanation = await provider.calculate_book_match_score(
-                detected_book, library_dicts
+                detected_book, sampled_library
             )
 
             # Cache the result
@@ -251,9 +256,9 @@ class RecommendationService:
             # Calculate match score
             if settings.LLM_ENABLED:
                 try:
-                    # Use LLM-based scoring
+                    # Use LLM-based scoring with deterministic sampling
                     match_score, explanation = await RecommendationService.calculate_match_score_llm(
-                        book, user_library
+                        book, user_library, user_id
                     )
                     book["match_score"] = match_score
                     book["recommendation_explanation"] = explanation

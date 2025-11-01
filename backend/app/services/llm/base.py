@@ -1,7 +1,44 @@
 """Base class for LLM providers."""
 
+import hashlib
+import random
 from abc import ABC, abstractmethod
 from typing import Any
+
+# Configuration constants for LLM prompts
+MAX_DESCRIPTION_LENGTH = 300  # Characters to include from book descriptions
+MAX_LIBRARY_BOOKS = 50  # Maximum number of user library books to send to LLM (tokens are cheap!)
+
+
+def sample_library_books(
+    library: list[dict[str, Any]], user_id: str, max_books: int = MAX_LIBRARY_BOOKS
+) -> list[dict[str, Any]]:
+    """
+    Sample books from user's library with deterministic shuffling.
+
+    Uses user_id as seed to ensure consistent sampling per user (cache-friendly).
+    Avoids bias from always taking first N books.
+
+    Args:
+        library: Full user library
+        user_id: User ID for deterministic seeding
+        max_books: Maximum number of books to sample
+
+    Returns:
+        Sampled list of books (deterministically shuffled)
+    """
+    if len(library) <= max_books:
+        return library
+
+    # Create deterministic seed from user_id
+    seed = int(hashlib.md5(user_id.encode()).hexdigest()[:8], 16)
+
+    # Shuffle with deterministic seed (same user = same shuffle every time)
+    shuffled = library.copy()
+    rng = random.Random(seed)
+    rng.shuffle(shuffled)
+
+    return shuffled[:max_books]
 
 
 class LLMProvider(ABC):
@@ -59,8 +96,12 @@ class LLMProvider(ABC):
             parts.append(f"Categories: {categories}")
 
         if description := book.get("description"):
-            # Truncate long descriptions
-            desc = description[:300] + "..." if len(description) > 300 else description
+            # Truncate long descriptions to stay within token limits
+            desc = (
+                description[:MAX_DESCRIPTION_LENGTH] + "..."
+                if len(description) > MAX_DESCRIPTION_LENGTH
+                else description
+            )
             parts.append(f"Description: {desc}")
 
         if rating := book.get("average_rating"):
@@ -87,16 +128,17 @@ class LLMProvider(ABC):
         if not user_library:
             library_summary = "User has an empty library (new user)."
         else:
-            # Limit to most recent 20 books to stay within token limits
-            recent_books = user_library[:20]
+            # Limit number of books to stay within token limits
+            recent_books = user_library[:MAX_LIBRARY_BOOKS]
             library_items = [
                 f"- {book.get('title', 'Unknown')} by {book.get('author', 'Unknown')}"
                 for book in recent_books
             ]
             library_summary = "User's library:\n" + "\n".join(library_items)
 
-            if len(user_library) > 20:
-                library_summary += f"\n... and {len(user_library) - 20} more books"
+            if len(user_library) > MAX_LIBRARY_BOOKS:
+                remaining = len(user_library) - MAX_LIBRARY_BOOKS
+                library_summary += f"\n... and {remaining} more books"
 
         # Format detected book
         detected_summary = self._format_book_summary(detected_book)
