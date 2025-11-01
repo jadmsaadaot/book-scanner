@@ -7,6 +7,12 @@ from typing import Any
 import pytesseract
 from PIL import Image, ImageEnhance, ImageFilter
 
+# Configuration constants
+MIN_TITLE_LENGTH = 3  # Minimum characters for a valid title
+MAX_TITLE_LENGTH = 200  # Maximum characters for a valid title
+MIN_LINE_CONFIDENCE = 50  # Minimum confidence score (0-100) for a line to be considered
+NUMERIC_RATIO_THRESHOLD = 0.5  # Maximum ratio of digits in a title
+
 
 class OCRService:
     """Service for optical character recognition on book images."""
@@ -42,6 +48,79 @@ class OCRService:
         return image
 
     @staticmethod
+    def _load_and_preprocess_image(image_bytes: bytes) -> Image.Image:
+        """
+        Load image from bytes and preprocess it.
+
+        Args:
+            image_bytes: Image file bytes
+
+        Returns:
+            Preprocessed PIL Image object
+        """
+        image = Image.open(io.BytesIO(image_bytes))
+        return OCRService.preprocess_image(image)
+
+    @staticmethod
+    def _extract_lines_with_confidence(
+        ocr_data: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """
+        Extract text lines with their confidence scores from OCR data.
+
+        Args:
+            ocr_data: Raw OCR data from pytesseract.image_to_data
+
+        Returns:
+            List of dicts with 'text' and 'confidence' for each line
+        """
+        lines = []
+        current_line = []
+        current_line_num = -1
+        current_confidences = []
+
+        for i, text in enumerate(ocr_data["text"]):
+            line_num = ocr_data["line_num"][i]
+            conf = ocr_data["conf"][i]
+
+            # Skip empty text or invalid confidence
+            if not text.strip() or conf == -1:
+                continue
+
+            # New line detected
+            if line_num != current_line_num:
+                # Save previous line if it exists
+                if current_line:
+                    line_text = " ".join(current_line)
+                    avg_conf = (
+                        sum(current_confidences) / len(current_confidences)
+                        if current_confidences
+                        else 0
+                    )
+                    lines.append({"text": line_text, "confidence": avg_conf})
+
+                # Start new line
+                current_line = [text]
+                current_confidences = [conf]
+                current_line_num = line_num
+            else:
+                # Continue current line
+                current_line.append(text)
+                current_confidences.append(conf)
+
+        # Don't forget the last line
+        if current_line:
+            line_text = " ".join(current_line)
+            avg_conf = (
+                sum(current_confidences) / len(current_confidences)
+                if current_confidences
+                else 0
+            )
+            lines.append({"text": line_text, "confidence": avg_conf})
+
+        return lines
+
+    @staticmethod
     def extract_text(image_bytes: bytes) -> dict[str, Any]:
         """
         Extract text from image bytes using Tesseract OCR.
@@ -53,23 +132,25 @@ class OCRService:
             Dictionary containing extracted text and confidence scores
         """
         try:
-            # Load image from bytes
-            image = Image.open(io.BytesIO(image_bytes))
+            # Load and preprocess image
+            processed_image = OCRService._load_and_preprocess_image(image_bytes)
 
-            # Preprocess image
-            processed_image = OCRService.preprocess_image(image)
-
-            # Extract text with detailed data
+            # Extract text with detailed data (line-level confidence)
             ocr_data = pytesseract.image_to_data(
                 processed_image, output_type=pytesseract.Output.DICT
             )
 
-            # Extract text with confidence
+            # Extract full text for backward compatibility
             full_text = pytesseract.image_to_string(processed_image)
 
-            # Calculate average confidence
+            # Extract lines with their individual confidence scores
+            lines_with_confidence = OCRService._extract_lines_with_confidence(
+                ocr_data
+            )
+
+            # Calculate average confidence from all valid words
             confidences = [
-                int(conf) for conf in ocr_data["conf"] if conf != "-1" and conf != -1
+                int(conf) for conf in ocr_data["conf"] if conf != -1 and conf != "-1"
             ]
             avg_confidence = (
                 sum(confidences) / len(confidences) if confidences else 0.0
@@ -78,15 +159,76 @@ class OCRService:
             return {
                 "text": full_text.strip(),
                 "confidence": avg_confidence,
+                "lines": lines_with_confidence,  # New: line-level data
                 "detailed_data": ocr_data,
             }
         except Exception as e:
-            return {"text": "", "confidence": 0.0, "error": str(e)}
+            return {"text": "", "confidence": 0.0, "lines": [], "error": str(e)}
+
+    @staticmethod
+    def _is_likely_title(text: str) -> bool:
+        """
+        Determine if a text line is likely a book title using heuristics.
+
+        Args:
+            text: Text line to evaluate
+
+        Returns:
+            True if likely a book title, False otherwise
+        """
+        # Filter out too short or too long
+        if len(text) < MIN_TITLE_LENGTH or len(text) > MAX_TITLE_LENGTH:
+            return False
+
+        # Skip if mostly numbers (ISBNs, prices, etc.)
+        if len(text) > 0:
+            numeric_ratio = sum(c.isdigit() for c in text) / len(text)
+            if numeric_ratio > NUMERIC_RATIO_THRESHOLD:
+                return False
+
+        # Skip common publisher/metadata keywords
+        noise_keywords = [
+            "isbn",
+            "copyright",
+            "edition",
+            "published",
+            "publisher",
+            "press",
+            "books",
+            "library",
+            "printed",
+            "reserved",
+            "rights",
+            "price",
+            "pages",
+        ]
+        text_lower = text.lower()
+        if any(keyword in text_lower for keyword in noise_keywords):
+            return False
+
+        # Skip lines that are ALL CAPS (often publisher names or categories)
+        # But allow single-word all-caps titles (e.g., "DUNE")
+        words = text.split()
+        if len(words) > 1 and text.isupper():
+            return False
+
+        # Prefer Title Case (most book titles are in Title Case)
+        # Count words that start with capital letter
+        if words:
+            capitalized_words = sum(1 for word in words if word and word[0].isupper())
+            title_case_ratio = capitalized_words / len(words)
+
+            # If less than 50% of words are capitalized, likely not a title
+            # (unless it's a single word)
+            if len(words) > 1 and title_case_ratio < 0.5:
+                return False
+
+        return True
 
     @staticmethod
     def extract_book_titles(ocr_result: dict[str, Any]) -> list[dict[str, Any]]:
         """
-        Parse OCR text to extract potential book titles.
+        Parse OCR text to extract potential book titles with improved heuristics.
 
         Args:
             ocr_result: Result from extract_text method
@@ -94,33 +236,49 @@ class OCRService:
         Returns:
             List of potential book titles with confidence scores
         """
-        text = ocr_result.get("text", "")
-        confidence = ocr_result.get("confidence", 0.0)
+        lines_with_conf = ocr_result.get("lines", [])
 
-        if not text:
-            return []
+        # Fallback to old method if no line-level data
+        if not lines_with_conf:
+            text = ocr_result.get("text", "")
+            confidence = ocr_result.get("confidence", 0.0)
 
-        # Split by newlines and filter out empty lines
-        lines = [line.strip() for line in text.split("\n") if line.strip()]
+            if not text:
+                return []
 
-        # Basic heuristics to identify potential book titles
+            lines_with_conf = [
+                {"text": line.strip(), "confidence": confidence}
+                for line in text.split("\n")
+                if line.strip()
+            ]
+
+        # Extract titles using heuristics
         potential_titles = []
-        for line in lines:
-            # Skip very short lines (likely noise)
-            if len(line) < 3:
+        for line_data in lines_with_conf:
+            text = line_data["text"]
+            confidence = line_data["confidence"]
+
+            # Skip low-confidence lines
+            if confidence < MIN_LINE_CONFIDENCE:
                 continue
 
-            # Skip lines that are mostly numbers
-            if sum(c.isdigit() for c in line) / len(line) > 0.5:
+            # Apply title heuristics
+            if not OCRService._is_likely_title(text):
                 continue
 
-            # Clean the line
-            cleaned_title = OCRService._clean_title(line)
+            # Clean the title
+            cleaned_title = OCRService._clean_title(text)
 
             if cleaned_title:
                 potential_titles.append(
-                    {"title": cleaned_title, "confidence": confidence / 100.0}
+                    {
+                        "title": cleaned_title,
+                        "confidence": confidence / 100.0,  # Normalize to 0-1
+                    }
                 )
+
+        # Sort by confidence (highest first)
+        potential_titles.sort(key=lambda x: x["confidence"], reverse=True)
 
         return potential_titles
 
