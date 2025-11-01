@@ -133,6 +133,7 @@ class DetectedBook(SQLModel):
     confidence: float  # OCR confidence score
     match_score: float  # How well it matches user's library
     in_library: bool = False
+    recommendation_explanation: str | None = None  # Why this book was recommended
 
 
 class ScanResult(SQLModel):

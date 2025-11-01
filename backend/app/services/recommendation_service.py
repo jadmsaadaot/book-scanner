@@ -1,18 +1,88 @@
 """Recommendation service for suggesting books based on user's library."""
 
+import hashlib
 import json
 from typing import Any
 
+from cachetools import TTLCache
 from sqlmodel import Session, select
 
+from app.core.config import settings
 from app.models import Book, User, UserLibrary
+
+# Simple in-memory cache for LLM recommendations
+# TTL of 1 hour, max 1000 entries
+_recommendation_cache: TTLCache = TTLCache(maxsize=1000, ttl=3600)
 
 
 class RecommendationService:
     """Service for generating book recommendations."""
 
     @staticmethod
-    def calculate_match_score(
+    async def calculate_match_score_llm(
+        detected_book: dict[str, Any], user_library: list[Book]
+    ) -> tuple[float, str]:
+        """
+        Calculate match score using LLM with caching.
+
+        Args:
+            detected_book: Book metadata from Google Books
+            user_library: List of books in user's library
+
+        Returns:
+            Tuple of (match_score, explanation)
+        """
+        # Generate cache key based on library and detected book
+        library_ids = sorted([str(book.id) for book in user_library])
+        library_hash = hashlib.md5(
+            "".join(library_ids).encode()
+        ).hexdigest()
+        detected_book_id = detected_book.get("google_books_id", "")
+        cache_key = f"{library_hash}:{detected_book_id}"
+
+        # Check cache
+        if cache_key in _recommendation_cache:
+            return _recommendation_cache[cache_key]
+
+        try:
+            # Import here to avoid circular imports
+            from app.services.llm import get_llm_provider
+
+            # Get LLM provider
+            provider = get_llm_provider()
+
+            # Convert Book objects to dicts for LLM
+            library_dicts = [
+                {
+                    "title": book.title,
+                    "author": book.author,
+                    "categories": book.categories,
+                    "description": book.description,
+                    "average_rating": book.average_rating,
+                }
+                for book in user_library
+            ]
+
+            # Get LLM score and explanation
+            score, explanation = await provider.calculate_book_match_score(
+                detected_book, library_dicts
+            )
+
+            # Cache the result
+            result = (score, explanation)
+            _recommendation_cache[cache_key] = result
+
+            return result
+
+        except Exception:
+            # If LLM fails, fall back to rule-based scoring
+            score = RecommendationService.calculate_match_score_rule_based(
+                detected_book, user_library
+            )
+            return score, "Rule-based recommendation (LLM unavailable)"
+
+    @staticmethod
+    def calculate_match_score_rule_based(
         detected_book: dict[str, Any], user_library: list[Book]
     ) -> float:
         """
@@ -156,7 +226,7 @@ class RecommendationService:
         return result is not None
 
     @staticmethod
-    def filter_and_rank_recommendations(
+    async def filter_and_rank_recommendations(
         detected_books: list[dict[str, Any]],
         user_library: list[Book],
         user_id: str,
@@ -179,10 +249,28 @@ class RecommendationService:
 
         for book in detected_books:
             # Calculate match score
-            match_score = RecommendationService.calculate_match_score(
-                book, user_library
-            )
-            book["match_score"] = match_score
+            if settings.LLM_ENABLED:
+                try:
+                    # Use LLM-based scoring
+                    match_score, explanation = await RecommendationService.calculate_match_score_llm(
+                        book, user_library
+                    )
+                    book["match_score"] = match_score
+                    book["recommendation_explanation"] = explanation
+                except Exception:
+                    # Fallback to rule-based if LLM fails
+                    match_score = RecommendationService.calculate_match_score_rule_based(
+                        book, user_library
+                    )
+                    book["match_score"] = match_score
+                    book["recommendation_explanation"] = "Rule-based recommendation"
+            else:
+                # Use rule-based scoring
+                match_score = RecommendationService.calculate_match_score_rule_based(
+                    book, user_library
+                )
+                book["match_score"] = match_score
+                book["recommendation_explanation"] = "Rule-based recommendation"
 
             # Check if in library
             in_library = RecommendationService.is_book_in_library(

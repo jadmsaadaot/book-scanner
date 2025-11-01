@@ -85,7 +85,7 @@ async def scan_books(
 
         # Step 5: Generate recommendations
         all_books, recommendations = (
-            RecommendationService.filter_and_rank_recommendations(
+            await RecommendationService.filter_and_rank_recommendations(
                 detected_books_list,
                 user_library,
                 str(current_user.id),
@@ -104,6 +104,7 @@ async def scan_books(
                 confidence=book.get("confidence", 0.0),
                 match_score=book.get("match_score", 0.0),
                 in_library=book.get("in_library", False),
+                recommendation_explanation=book.get("recommendation_explanation"),
             )
             for book in all_books
         ]
@@ -118,6 +119,7 @@ async def scan_books(
                 confidence=book.get("confidence", 0.0),
                 match_score=book.get("match_score", 0.0),
                 in_library=False,
+                recommendation_explanation=book.get("recommendation_explanation"),
             )
             for book in recommendations
         ]

@@ -5,7 +5,8 @@ description = ""
 requires-python = ">=3.10,<4.0"
 dependencies = [
     "fastapi[standard]<1.0.0,>=0.114.2",
-    "python-multipart<1.0.0,>=0.0.7",
+    # Pin python-multipart to a specific version to avoid dependency resolution issues
+    "python-multipart==0.0.19",
     "email-validator<3.0.0.0,>=2.1.0.post1",
     "passlib[bcrypt]<2.0.0,>=1.7.4",
     "tenacity<9.0.0,>=8.2.3",
@@ -19,13 +20,20 @@ dependencies = [
     # Pin bcrypt until passlib supports the latest
     "bcrypt==4.3.0",
     "pydantic-settings<3.0.0,>=2.2.1",
-    "sentry-sdk[fastapi]<2.0.0,>=1.40.6",
+    # Pin sentry-sdk to a specific version to avoid dependency resolution issues
+    "sentry-sdk[fastapi]==2.18.0",
     "pyjwt<3.0.0,>=2.8.0",
     # Book scanner dependencies
     "pytesseract<1.0.0,>=0.3.10",
     "pillow<11.0.0,>=10.0.0",
     "fuzzywuzzy<1.0.0,>=0.18.0",
     "python-levenshtein<1.0.0,>=0.25.0",
+    # LLM providers
+    "openai<2.0.0,>=1.0.0",
+    "anthropic<1.0.0,>=0.40.0",
+    "google-generativeai<1.0.0,>=0.8.0",
+    # Caching
+    "cachetools<6.0.0,>=5.3.0",
 ]
 
 [tool.uv]

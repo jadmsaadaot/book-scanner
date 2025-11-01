@@ -94,6 +94,13 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
 
+    # LLM Provider Settings
+    LLM_PROVIDER: Literal["openai", "anthropic", "google"] = "google"
+    OPENAI_API_KEY: str | None = None
+    ANTHROPIC_API_KEY: str | None = None
+    GOOGLE_API_KEY: str | None = None
+    LLM_ENABLED: bool = True  # Enable/disable LLM recommendations (fallback to rule-based)
+
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == "changethis":
             message = (
