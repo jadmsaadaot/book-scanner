@@ -181,9 +181,11 @@ class OCRService:
             return False
 
         # Skip if mostly numbers (ISBNs, prices, etc.)
+        # But allow short numeric titles like "1984"
         if len(text) > 0:
             numeric_ratio = sum(c.isdigit() for c in text) / len(text)
-            if numeric_ratio > NUMERIC_RATIO_THRESHOLD:
+            # Allow fully numeric if short (like "1984"), otherwise check ratio
+            if len(text) > 10 and numeric_ratio > NUMERIC_RATIO_THRESHOLD:
                 return False
 
         # Skip common publisher/metadata keywords
@@ -205,23 +207,6 @@ class OCRService:
         text_lower = text.lower()
         if any(keyword in text_lower for keyword in noise_keywords):
             return False
-
-        # Skip lines that are ALL CAPS (often publisher names or categories)
-        # But allow single-word all-caps titles (e.g., "DUNE")
-        words = text.split()
-        if len(words) > 1 and text.isupper():
-            return False
-
-        # Prefer Title Case (most book titles are in Title Case)
-        # Count words that start with capital letter
-        if words:
-            capitalized_words = sum(1 for word in words if word and word[0].isupper())
-            title_case_ratio = capitalized_words / len(words)
-
-            # If less than 50% of words are capitalized, likely not a title
-            # (unless it's a single word)
-            if len(words) > 1 and title_case_ratio < 0.5:
-                return False
 
         return True
 
