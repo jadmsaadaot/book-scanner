@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from pydantic import EmailStr
 from sqlmodel import Field, Relationship, SQLModel
@@ -89,7 +90,7 @@ class BookBase(SQLModel):
     page_count: int | None = None
     categories: str | None = Field(default=None, max_length=500)  # JSON string of categories
     thumbnail_url: str | None = Field(default=None, max_length=1000)
-    google_books_id: str | None = Field(default=None, max_length=100, index=True)
+    google_books_id: str | None = Field(default=None, max_length=100, index=True, unique=True)
     average_rating: float | None = None
     ratings_count: int | None = None
 
@@ -115,7 +116,7 @@ class UserLibrary(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(foreign_key="user.id", nullable=False, ondelete="CASCADE")
     book_id: uuid.UUID = Field(foreign_key="book.id", nullable=False, ondelete="CASCADE")
-    added_date: str = Field(default_factory=lambda: str(uuid.uuid4()))  # Will be replaced with actual date
+    added_date: datetime = Field(default_factory=datetime.now)
     notes: str | None = Field(default=None)
 
     # Relationships

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 from typing import Any
 
 from cachetools import TTLCache
@@ -9,6 +10,8 @@ from sqlmodel import Session, select
 
 from app.core.config import settings
 from app.models import Book, User, UserLibrary
+
+logger = logging.getLogger(__name__)
 
 # Simple in-memory cache for LLM recommendations
 # TTL of 1 hour, max 1000 entries
@@ -79,12 +82,18 @@ class RecommendationService:
 
             return result
 
-        except Exception:
-            # If LLM fails, fall back to rule-based scoring
+        except ImportError as e:
+            logger.warning(f"LLM provider not available: {str(e)}")
             score = RecommendationService.calculate_match_score_rule_based(
                 detected_book, user_library
             )
             return score, "Rule-based recommendation (LLM unavailable)"
+        except Exception as e:
+            logger.error(f"Error in LLM-based scoring: {str(e)}", exc_info=True)
+            score = RecommendationService.calculate_match_score_rule_based(
+                detected_book, user_library
+            )
+            return score, "Rule-based recommendation (LLM error)"
 
     @staticmethod
     def calculate_match_score_rule_based(
@@ -262,13 +271,14 @@ class RecommendationService:
                     )
                     book["match_score"] = match_score
                     book["recommendation_explanation"] = explanation
-                except Exception:
+                except Exception as e:
                     # Fallback to rule-based if LLM fails
+                    logger.error(f"Error getting LLM score for book '{book.get('title')}': {str(e)}")
                     match_score = RecommendationService.calculate_match_score_rule_based(
                         book, user_library
                     )
                     book["match_score"] = match_score
-                    book["recommendation_explanation"] = "Rule-based recommendation"
+                    book["recommendation_explanation"] = "Rule-based recommendation (LLM error)"
             else:
                 # Use rule-based scoring
                 match_score = RecommendationService.calculate_match_score_rule_based(

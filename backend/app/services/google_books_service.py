@@ -1,10 +1,13 @@
 """Google Books API service for book metadata retrieval."""
 
 import json
+import logging
 from typing import Any
 
 import httpx
 from fuzzywuzzy import fuzz
+
+logger = logging.getLogger(__name__)
 
 
 class GoogleBooksService:
@@ -44,7 +47,19 @@ class GoogleBooksService:
                         books.append(book_data)
 
                 return books
-        except Exception:
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"Google Books API HTTP error for query '{query}': {e.response.status_code} - {e.response.text}"
+            )
+            return []
+        except httpx.TimeoutException:
+            logger.error(f"Google Books API timeout for query '{query}'")
+            return []
+        except httpx.RequestError as e:
+            logger.error(f"Google Books API request error for query '{query}': {str(e)}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error in search_book for query '{query}': {str(e)}")
             return []
 
     @staticmethod
@@ -66,7 +81,19 @@ class GoogleBooksService:
 
                 data = response.json()
                 return GoogleBooksService._parse_book_item(data)
-        except Exception:
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"Google Books API HTTP error for ID '{google_books_id}': {e.response.status_code}"
+            )
+            return None
+        except httpx.TimeoutException:
+            logger.error(f"Google Books API timeout for ID '{google_books_id}'")
+            return None
+        except httpx.RequestError as e:
+            logger.error(f"Google Books API request error for ID '{google_books_id}': {str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error in get_book_by_id for ID '{google_books_id}': {str(e)}")
             return None
 
     @staticmethod
@@ -124,7 +151,11 @@ class GoogleBooksService:
                 "average_rating": volume_info.get("averageRating"),
                 "ratings_count": volume_info.get("ratingsCount"),
             }
-        except Exception:
+        except KeyError as e:
+            logger.warning(f"Missing required field in book item: {str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"Error parsing book item: {str(e)}")
             return None
 
     @staticmethod
