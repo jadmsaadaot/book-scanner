@@ -232,3 +232,67 @@ export type UtilsTestEmailData = {
 export type UtilsTestEmailResponse = (Message);
 
 export type UtilsHealthCheckResponse = (boolean);
+
+// Book-related types
+export type BookPublic = {
+    id: string;
+    title: string;
+    author?: (string | null);
+    isbn?: (string | null);
+    publisher?: (string | null);
+    published_date?: (string | null);
+    description?: (string | null);
+    page_count?: (number | null);
+    categories?: (string | null);
+    thumbnail_url?: (string | null);
+    google_books_id?: (string | null);
+    average_rating?: (number | null);
+    ratings_count?: (number | null);
+};
+
+export type BooksPublic = {
+    data: Array<BookPublic>;
+    count: number;
+};
+
+export type DetectedBook = {
+    title: string;
+    author?: (string | null);
+    isbn?: (string | null);
+    thumbnail_url?: (string | null);
+    google_books_id?: (string | null);
+    confidence: number;
+    match_score: number;
+    in_library: boolean;
+    recommendation_explanation?: (string | null);
+};
+
+export type ScanResult = {
+    detected_books: Array<DetectedBook>;
+    recommendations: Array<DetectedBook>;
+};
+
+export type BooksGetLibraryData = {
+    limit?: number;
+    skip?: number;
+};
+
+export type BooksGetLibraryResponse = (BooksPublic);
+
+export type BooksAddToLibraryData = {
+    googleBooksId: string;
+};
+
+export type BooksAddToLibraryResponse = (BookPublic);
+
+export type BooksRemoveFromLibraryData = {
+    bookId: string;
+};
+
+export type BooksRemoveFromLibraryResponse = (Message);
+
+export type BooksScanData = {
+    file: Blob | File;
+};
+
+export type BooksScanResponse = (ScanResult);
