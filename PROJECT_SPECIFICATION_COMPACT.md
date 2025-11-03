@@ -1,6 +1,6 @@
 # Book Scanner - Quick Reference
 
-**Version:** 1.0.0 | **Status:** MVP Development | **Target:** 2-4 weeks
+**Version:** 1.1.0 | **Status:** Frontend Complete - Testing Phase | **Updated:** 2025-11-03
 
 ---
 
@@ -237,34 +237,35 @@ user_library (
 
 ---
 
-## MVP Features (Iteration 1: 2-4 weeks)
+## MVP Features (Iteration 1) - STATUS: FRONTEND COMPLETE ✅
 
-### In Scope
-1. ✅ **User Authentication** (already implemented)
+### Implemented Features
+1. ✅ **User Authentication** (COMPLETE)
    - Email/password signup/login, JWT sessions, password reset
 
-2. 🆕 **Taste Profile Builder** (NEW)
-   - Onboarding flow: "Add 5-10 books you love"
-   - Google Books search integration
-   - Simple list view of profile books
-   - Add/remove books
+2. ✅ **Taste Profile Builder** (COMPLETE)
+   - Onboarding flow with progress indicator (5 min, 10 recommended)
+   - Google Books search (client-side API)
+   - Library page with grid view
+   - Add/remove books with modal interface
 
-3. 🆕 **Book Scanner** (PRIMARY FEATURE - NEW)
-   - Camera capture or file upload
-   - OCR processing (Tesseract)
+3. ✅ **Book Scanner - PRIMARY FEATURE** (COMPLETE)
+   - Camera capture + file upload + drag-drop
+   - OCR processing (Tesseract backend)
    - Parallel Google Books lookups
-   - LLM-powered match scoring (Gemini primary, GPT/Claude fallback)
+   - LLM-powered match scoring (Gemini → GPT → Claude)
    - Display all detected books
-   - Highlight top 3-5 recommendations with scores
-   - Explain why each book matches
+   - Top 3-5 recommendations with color-coded match scores
+   - Explanations for each recommendation
    - **NO tracking, NO history, NO wishlist**
 
-4. 🆕 **Simple Dashboard** (NEW)
-   - Welcome message
-   - "Scan Now" CTA
-   - Profile book count
+4. ✅ **Dashboard** (COMPLETE)
+   - Welcome message with value prop
+   - "Scan Now" CTA (disabled if no books)
+   - Library book count
+   - "How it works" guide
 
-5. ✅ **User Settings** (already implemented)
+5. ✅ **User Settings** (COMPLETE)
    - Profile settings, change password, dark mode, delete account
 
 ### Out of Scope (Future Iterations)
@@ -272,40 +273,48 @@ user_library (
 
 ---
 
-## Frontend Structure
+## Frontend Structure (Implemented 2025-11-03)
 
 ```
-frontend/
-├── src/
-│   ├── routes/                    # TanStack Router (file-based)
-│   │   ├── _layout.tsx           # Protected layout
-│   │   │   ├── index.tsx         # 🆕 Dashboard
-│   │   │   ├── scan.tsx          # 🆕 Scanner page
-│   │   │   ├── profile/
-│   │   │   │   └── books.tsx     # 🆕 Profile books
-│   │   │   ├── settings.tsx      # ✅ Existing
-│   │   │   └── admin.tsx         # ✅ Existing
-│   │   ├── onboarding.tsx        # 🆕 Onboarding
-│   │   ├── login.tsx             # ✅ Existing
-│   │   └── signup.tsx            # ✅ Existing
-│   │
-│   ├── components/
-│   │   ├── Onboarding/           # 🆕 BookSearch, BookSearchResult
-│   │   ├── Profile/              # 🆕 ProfileBooksPage, ProfileBookCard
-│   │   ├── Scanner/              # 🆕 ScanPage, ImageUpload, ScanResults, TopPicks
-│   │   ├── Dashboard/            # 🆕 DashboardPage
-│   │   ├── Common/               # 🆕 BookCover, MatchBadge, LoadingSpinner
-│   │   ├── Admin/                # ✅ Existing
-│   │   ├── UserSettings/         # ✅ Existing
-│   │   └── ui/                   # ✅ Chakra wrappers
-│   │
-│   ├── hooks/
-│   │   ├── useAuth.ts            # ✅ Existing
-│   │   ├── useBooks.ts           # 🆕 Book operations
-│   │   ├── useProfile.ts         # 🆕 Profile books CRUD
-│   │   └── useScan.ts            # 🆕 Scan mutation
-│   │
-│   └── client/                   # Auto-generated API client (OpenAPI)
+frontend/src/
+├── routes/                        # TanStack Router
+│   ├── _layout/
+│   │   ├── index.tsx             # ✅ Dashboard
+│   │   ├── library.tsx           # ✅ Library/Profile books page
+│   │   ├── scan.tsx              # ✅ Scanner page
+│   │   ├── settings.tsx          # ✅ User settings
+│   │   └── admin.tsx             # ✅ Admin
+│   ├── onboarding.tsx            # ✅ Onboarding flow
+│   ├── login.tsx / signup.tsx    # ✅ Auth pages
+│
+├── components/
+│   ├── Books/
+│   │   ├── BookCover.tsx         # ✅ Cover with fallback
+│   │   └── MatchBadge.tsx        # ✅ Match % badge
+│   ├── Library/
+│   │   ├── BookCard.tsx          # ✅ Book display card
+│   │   └── BookSearch.tsx        # ✅ Google Books search
+│   ├── Scanner/
+│   │   ├── ImageUpload.tsx       # ✅ Upload/camera/drag-drop
+│   │   ├── ScanResults.tsx       # ✅ Results display
+│   │   ├── TopPicks.tsx          # ✅ Top recommendations
+│   │   └── DetectedBooksList.tsx # ✅ All books list
+│   ├── Common/
+│   │   ├── LoadingSpinner.tsx    # ✅ Loading states
+│   │   └── EmptyState.tsx        # ✅ Empty states
+│   ├── Admin/                    # ✅ Admin components
+│   ├── UserSettings/             # ✅ Settings components
+│   └── ui/                       # ✅ Chakra wrappers
+│
+├── hooks/
+│   ├── useAuth.ts                # ✅ Authentication
+│   ├── useLibrary.ts             # ✅ Library CRUD
+│   ├── useGoogleBooks.ts         # ✅ Book search
+│   └── useScan.ts                # ✅ Scan mutation
+│
+└── client/
+    ├── BooksService.ts           # ✅ Book API client
+    └── types.gen.ts              # ✅ TypeScript types
 ```
 
 ---
@@ -330,38 +339,24 @@ Profile → My Books → View list → Add/Remove books via search modal
 
 ---
 
-## Implementation Plan (4 Weeks)
+## Implementation Status
 
-### Week 1: Onboarding Frontend
-- [ ] `/onboarding` route + components
-- [ ] BookSearch component (Google Books search)
-- [ ] Profile books add/remove integration
-- [ ] `useProfile` + `useBookSearch` hooks
-- **Deliverable:** New users can add books to profile
+### ✅ Iteration 1: MVP (COMPLETED - 2025-11-03)
+**What was built:**
+- ✅ Backend: All book endpoints (library, scan) fully implemented
+- ✅ Frontend Core: Custom hooks (useLibrary, useScan, useGoogleBooks)
+- ✅ Frontend Components: BookCover, MatchBadge, Loading, EmptyState
+- ✅ Dashboard: Welcome page with stats and CTAs
+- ✅ Library Management: Search, add, remove books
+- ✅ Scanner: Camera/upload, OCR, recommendations display
+- ✅ Onboarding: Guided setup (min 5 books)
 
-### Week 2: Scanner UI
-- [ ] `/scan` route + components
-- [ ] ImageUpload (drag-drop + camera API)
-- [ ] ScanResults, TopPicks, AllDetectedBooks
-- [ ] MatchBadge, LoadingSpinner
-- [ ] `useScan` mutation hook
-- [ ] Dashboard with "Scan Now" CTA
-- **Deliverable:** Users can scan shelves & see recommendations
+**Current Status:** Frontend complete, entering testing phase
 
-### Week 3: Profile Management
-- [ ] `/profile/books` route
-- [ ] ProfileBooksPage + ProfileBookCard
-- [ ] BookCover component with fallback
-- [ ] Responsive design for mobile
-- **Deliverable:** Users can manage profile books
-
-### Week 4: Testing & Launch
-- [ ] Test all flows (happy path + edge cases)
-- [ ] Mobile browser testing (iOS Safari, Android Chrome)
-- [ ] Error handling, loading states, toasts
-- [ ] UI/UX polish, animations
-- [ ] Production deployment (Railway/Render + Vercel/Netlify)
-- **Deliverable:** Production-ready MVP
+**Next Steps:**
+- Test end-to-end flows
+- Fix bugs
+- Deploy to production
 
 ---
 
@@ -561,4 +556,4 @@ npm run dev
 
 **End of Compact Specification**
 
-*Last Updated: 2025-11-02*
+*Last Updated: 2025-11-03*
