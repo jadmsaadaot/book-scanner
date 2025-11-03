@@ -73,8 +73,8 @@ async def scan_books(
                 detail=f"OCR processing failed: {ocr_result['error']}",
             )
 
-        # Step 2: Extract potential book titles
-        potential_titles = OCRService.extract_book_titles(ocr_result)
+        # Step 2: Extract potential book titles (now async with LLM support)
+        potential_titles = await OCRService.extract_book_titles(ocr_result)
 
         if not potential_titles:
             return ScanResult(detected_books=[], recommendations=[])

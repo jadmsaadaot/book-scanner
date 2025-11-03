@@ -36,6 +36,31 @@ class GoogleProvider(LLMProvider):
         """Check if Google Gemini is configured."""
         return bool(settings.GOOGLE_API_KEY and self.model)
 
+    async def extract_titles(self, prompt: str) -> str:
+        """
+        Extract book titles from OCR text using Google Gemini.
+
+        Args:
+            prompt: Formatted prompt with OCR text and instructions
+
+        Returns:
+            Raw JSON string response from LLM
+        """
+        if not self.model:
+            raise RuntimeError("Google Gemini client not initialized. Check API key.")
+
+        try:
+            response = await self.model.generate_content_async(prompt)
+            content = response.text if response.text else ""
+
+            if not content:
+                raise ValueError("Empty response from Google Gemini")
+
+            return content.strip()
+
+        except Exception as e:
+            raise RuntimeError(f"Google Gemini API error: {e}") from e
+
     async def calculate_book_match_score(
         self,
         detected_book: dict[str, Any],

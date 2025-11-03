@@ -30,6 +30,36 @@ class AnthropicProvider(LLMProvider):
         """Check if Anthropic is configured."""
         return bool(settings.ANTHROPIC_API_KEY and self.client)
 
+    async def extract_titles(self, prompt: str) -> str:
+        """
+        Extract book titles from OCR text using Claude.
+
+        Args:
+            prompt: Formatted prompt with OCR text and instructions
+
+        Returns:
+            Raw JSON string response from LLM
+        """
+        if not self.client:
+            raise RuntimeError("Anthropic client not initialized. Check API key.")
+
+        try:
+            response = await self.client.messages.create(
+                model=self.model,
+                max_tokens=500,
+                temperature=0.3,
+                messages=[{"role": "user", "content": prompt}],
+            )
+
+            content = response.content[0].text if response.content else ""
+            if not content:
+                raise ValueError("Empty response from Anthropic")
+
+            return content.strip()
+
+        except Exception as e:
+            raise RuntimeError(f"Anthropic API error: {e}") from e
+
     async def calculate_book_match_score(
         self,
         detected_book: dict[str, Any],

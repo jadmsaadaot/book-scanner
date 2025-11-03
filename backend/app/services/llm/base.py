@@ -65,6 +65,19 @@ class LLMProvider(ABC):
         pass
 
     @abstractmethod
+    async def extract_titles(self, prompt: str) -> str:
+        """
+        Extract book titles from OCR text using LLM.
+
+        Args:
+            prompt: Formatted prompt with OCR text and instructions
+
+        Returns:
+            Raw JSON string response from LLM
+        """
+        pass
+
+    @abstractmethod
     def is_available(self) -> bool:
         """
         Check if the provider is properly configured and available.

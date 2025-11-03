@@ -26,6 +26,42 @@ class OpenAIProvider(LLMProvider):
         """Check if OpenAI is configured."""
         return bool(settings.OPENAI_API_KEY and self.client)
 
+    async def extract_titles(self, prompt: str) -> str:
+        """
+        Extract book titles from OCR text using OpenAI GPT.
+
+        Args:
+            prompt: Formatted prompt with OCR text and instructions
+
+        Returns:
+            Raw JSON string response from LLM
+        """
+        if not self.client:
+            raise RuntimeError("OpenAI client not initialized. Check API key.")
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a book title extraction expert. Respond only with valid JSON.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.3,
+                max_tokens=500,
+            )
+
+            content = response.choices[0].message.content
+            if not content:
+                raise ValueError("Empty response from OpenAI")
+
+            return content.strip()
+
+        except Exception as e:
+            raise RuntimeError(f"OpenAI API error: {e}") from e
+
     async def calculate_book_match_score(
         self,
         detected_book: dict[str, Any],

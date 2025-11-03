@@ -387,8 +387,9 @@ Results:
    - Run Tesseract OCR
    - Extract line-level confidence scores
    ↓
-6. OCRService.extract_book_titles()
-   - Apply heuristics (length, numeric ratio, keywords)
+6. OCRService.extract_book_titles() [HYBRID: RULES + LLM]
+   - Phase 1: Apply heuristics (length, numeric ratio, keywords)
+   - Phase 2: LLM fallback (if rules extract 0 titles OR low confidence)
    - Filter low-confidence detections (<50%)
    ↓
 7. GoogleBooksService.fuzzy_search_book() [PARALLEL]
@@ -412,6 +413,234 @@ Results:
     - Top Picks (3-5 highest scored books)
     - All Detected Books (full list, collapsed)
 ```
+
+### Hybrid OCR Title Extraction Strategy
+
+**Problem:** Rule-based OCR title extraction can fail on:
+- Blurry/low-quality images
+- Unusual fonts or layouts
+- Edge cases like "1984" vs "Chapter 1984"
+- Books at odd angles
+
+**Solution:** Hybrid approach combining fast rules with intelligent LLM fallback.
+
+#### Implementation
+
+**Phase 1: Rule-Based Extraction (Primary)**
+```python
+# Fast heuristics (50-100ms)
+- Length filters (3-200 chars)
+- Numeric ratio threshold (< 50%)
+- Noise keyword filtering (ISBN, copyright, etc.)
+- Confidence threshold (> 50%)
+```
+
+**Phase 2: LLM Fallback (Secondary)**
+```python
+# LLM extraction (500ms-2s) triggered when:
+Strategy = "conservative":  # Default for MVP
+  - Rules extract 0 titles → Use LLM
+
+Strategy = "aggressive":    # For power users
+  - Rules extract 0 titles OR
+  - Average confidence < 70% → Use LLM
+
+Strategy = "disabled":      # For offline/cost-sensitive
+  - Never use LLM (rules only)
+```
+
+#### Configuration
+
+Environment variables:
+```bash
+# Enable/disable LLM features
+LLM_ENABLED=true
+
+# OCR-LLM strategy
+OCR_LLM_STRATEGY=conservative  # conservative | aggressive | disabled
+
+# Title validation
+OCR_MIN_TITLE_LENGTH=2
+OCR_MAX_TITLE_LENGTH=200
+OCR_MAX_NUMERIC_RATIO=0.5
+OCR_LLM_MAX_TITLES=20
+OCR_LLM_CONFIDENCE_THRESHOLD=0.7  # For aggressive mode
+```
+
+#### LLM Validation
+
+All LLM responses validated with Pydantic:
+```python
+class ExtractedTitle(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+    @validator('title')
+    def validate_title(cls, v):
+        # Reject if mostly numeric (except "1984")
+        # Remove excessive whitespace
+        return v
+
+class LLMTitleExtractionResponse(BaseModel):
+    titles: list[ExtractedTitle] = Field(max_items=20)
+
+    @validator('titles')
+    def validate_titles(cls, v):
+        # Deduplicate by normalized title
+        return unique_titles
+```
+
+#### Performance & Cost
+
+**Conservative Strategy (MVP Default):**
+- LLM Usage: ~10-20% of scans (only when rules fail completely)
+- Latency: +500ms on failed scans, 0ms on successful scans
+- Cost: <$0.01/user/month (Gemini Flash: $0.075 per 1M tokens)
+
+**Aggressive Strategy:**
+- LLM Usage: ~40-60% of scans (refines low-confidence results)
+- Latency: +500ms on 40-60% of scans
+- Cost: ~$0.02-0.05/user/month
+
+**Example Costs (Gemini Flash):**
+- 1000 scans/month
+- 20% use LLM (conservative)
+- 500 tokens per OCR text
+- Cost: 1000 × 0.20 × 500 = 100k tokens = **$0.0075/user**
+
+#### Metrics & Logging
+
+Every extraction logged with:
+- Rule-based title count
+- LLM used (yes/no)
+- LLM reason (low confidence, no titles, etc.)
+- Processing times (rule vs LLM)
+- Final title count
+- Improvement delta (LLM titles - rule titles)
+
+Metrics enable:
+- A/B testing strategies
+- Cost monitoring
+- Quality improvements
+- Future model fine-tuning
+
+---
+
+### Image Rotation Detection Strategy
+
+**Problem:** Books shelved vertically (spine text rotated 90° or 270°) cause OCR to fail or extract gibberish.
+
+**Solution:** Tesseract OSD (Orientation and Script Detection) + limited fallback rotations for good-enough accuracy with minimal complexity.
+
+#### Implementation
+
+**Phase 1: OSD Detection**
+```python
+# Tesseract OSD detects rotation (0°, 90°, 180°, 270°)
+- Run pytesseract.image_to_osd() on preprocessed image
+- Get rotation angle and confidence score
+- Rotate image if angle != 0
+- Proceed with OCR
+```
+
+**Phase 2: Fallback Rotation (if needed)**
+```python
+# If OCR confidence < threshold, try fallback angles
+if avg_confidence < 0.7 and rotation_mode == 'osd_fallback':
+    - Try rotations at 90° and 270° only (not all 4)
+    - Run OCR on each rotation
+    - Select rotation with highest confidence
+    - Use that result for title extraction
+```
+
+**Phase 3: Final OCR**
+```python
+# Run full OCR pipeline on best rotation
+- Extract text with line-level confidence
+- Extract book titles (rule-based + LLM)
+- Return results with rotation metadata
+```
+
+#### Configuration
+
+Environment variables:
+```bash
+# Rotation detection mode
+OCR_ROTATION_MODE=osd_fallback  # disabled | osd_only | osd_fallback
+
+# Thresholds
+OCR_ROTATION_CONFIDENCE_THRESHOLD=0.7  # Trigger fallback if OCR confidence below this
+OCR_ROTATION_FALLBACK_ANGLES=[90, 270]  # Angles to try (skip 0° and 180°)
+```
+
+**Modes:**
+- `disabled`: No rotation detection (fastest, ~2s)
+- `osd_only`: OSD detection + rotate once (good, ~2.5s)
+- `osd_fallback`: OSD + retry 90°/270° if low confidence (best, ~3-5s)
+
+#### Performance & Accuracy
+
+**OSD-Only Mode:**
+- Runtime: ~2.5s per scan
+- Accuracy: ~85-90% on vertical spines
+- OCR passes: 1-2 (OSD + OCR)
+
+**OSD-Fallback Mode (MVP Default):**
+- Runtime: ~3-5s per scan
+- Accuracy: ~90-95% on vertical spines
+- OCR passes: 2-3 typical (OSD + OCR + optional fallback)
+- Worst case: 4 passes (OSD + OCR + 2 fallbacks)
+
+**Why not all 4 rotations?**
+- 0°: Already tried via OSD
+- 180°: Rare (upside-down books)
+- 90° & 270°: Cover most vertical spine cases
+  - **90° prioritized** (North American standard: top→bottom reading direction)
+  - **270° fallback** (bottom→top for imports or edge cases)
+- Saves 1-2 OCR passes → faster runtime
+
+#### Rotation Metrics
+
+Logged for every scan:
+```python
+{
+    "rotation_mode": "osd_fallback",
+    "osd_angle": 90,              # Initial OSD detection
+    "osd_confidence": 0.85,
+    "ocr_confidence": 0.65,        # After initial OCR
+    "fallback_triggered": true,    # Confidence < threshold?
+    "fallback_angles_tried": [90, 270],
+    "final_angle": 270,            # Best rotation selected
+    "final_confidence": 0.92,
+    "rotation_time_ms": 3200       # Total time spent on rotation
+}
+```
+
+#### Integration with Title Extraction
+
+Rotation detection runs **before** title extraction:
+1. Load & preprocess image
+2. Detect rotation (OSD)
+3. Rotate if needed
+4. Run OCR → extract text & confidence
+5. If confidence < 70%, try fallback rotations
+6. Select best result
+7. **Extract book titles** (rule-based + LLM hybrid)
+8. Return results with rotation metadata
+
+#### Benefits
+
+✅ **Handles vertical spines** - Solves 90-95% of rotation cases
+✅ **Low complexity** - ~100 lines of code, no new dependencies
+✅ **Fast** - 3-5s typical, only 2-3 OCR passes
+✅ **Configurable** - Easy to disable or tune thresholds
+✅ **Observable** - Comprehensive metrics logging
+
+#### Limitations
+
+⚠️ **Misses upside-down books** - 180° not in fallback (rare edge case)
+⚠️ **Slower on bad images** - Low-quality images trigger more fallback attempts
+⚠️ **Tesseract-dependent** - OSD accuracy depends on Tesseract version & training data
 
 ---
 
