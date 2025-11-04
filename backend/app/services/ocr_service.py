@@ -13,6 +13,13 @@ from pydantic import BaseModel, Field, validator
 
 from app.core.config import settings
 
+# Enable HEIC/HEIF format support (Apple's image format)
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass  # pillow-heif not installed
+
 logger = logging.getLogger(__name__)
 
 # Configuration constants (with fallback to old values for compatibility)
@@ -359,7 +366,7 @@ class OCRService:
                 f"final_angle={rotation_angle}°, confidence={avg_confidence:.2f}, "
                 f"rotation_time_ms={rotation_time_ms:.0f}"
             )
-
+            logger.info(f"Extracted text: {full_text}")
             return {
                 "text": full_text.strip(),
                 "confidence": avg_confidence * 100.0,  # Return as 0-100 for backward compatibility
