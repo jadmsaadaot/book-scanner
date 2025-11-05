@@ -65,6 +65,26 @@ class LLMProvider(ABC):
         pass
 
     @abstractmethod
+    async def calculate_batch_match_scores(
+        self,
+        detected_books: list[dict[str, Any]],
+        user_library: list[dict[str, Any]],
+    ) -> list[tuple[float, str]]:
+        """
+        Calculate match scores for multiple books in a single LLM call.
+
+        Args:
+            detected_books: List of book metadata to evaluate
+            user_library: List of books in user's library with metadata
+
+        Returns:
+            List of tuples (match_score, explanation) in the same order as detected_books
+            - match_score: Float between 0.0 and 1.0
+            - explanation: Human-readable explanation of the recommendation
+        """
+        pass
+
+    @abstractmethod
     async def extract_titles(self, prompt: str) -> str:
         """
         Extract book titles from OCR text using LLM.
@@ -191,5 +211,75 @@ Respond in this exact JSON format:
 {{"score": 0.85, "explanation": "Your explanation here"}}
 
 Important: Only respond with the JSON object, no other text."""
+
+        return prompt
+
+    def _build_batch_recommendation_prompt(
+        self,
+        detected_books: list[dict[str, Any]],
+        user_library: list[dict[str, Any]],
+    ) -> str:
+        """
+        Build the prompt for the LLM to analyze multiple books at once.
+
+        Args:
+            detected_books: List of books to evaluate
+            user_library: User's library books
+
+        Returns:
+            Formatted prompt string
+        """
+        # Format user's library
+        if not user_library:
+            library_summary = "User has an empty library (new user)."
+        else:
+            # Limit number of books to stay within token limits
+            recent_books = user_library[:MAX_LIBRARY_BOOKS]
+            library_items = [
+                f"- {book.get('title', 'Unknown')} by {book.get('author', 'Unknown')}"
+                for book in recent_books
+            ]
+            library_summary = "User's library:\n" + "\n".join(library_items)
+
+            if len(user_library) > MAX_LIBRARY_BOOKS:
+                remaining = len(user_library) - MAX_LIBRARY_BOOKS
+                library_summary += f"\n... and {remaining} more books"
+
+        # Format detected books
+        books_summary = []
+        for i, book in enumerate(detected_books):
+            book_summary = self._format_book_summary(book)
+            books_summary.append(f"Book {i}:\n{book_summary}")
+
+        books_text = "\n\n".join(books_summary)
+
+        prompt = f"""You are a book recommendation expert. Analyze how well each detected book matches a user's reading preferences based on their library.
+
+{library_summary}
+
+Detected books to evaluate:
+{books_text}
+
+For EACH book (Book 0 through Book {len(detected_books) - 1}), provide:
+1. A match score from 0.0 to 1.0 (where 1.0 is a perfect match for this reader)
+2. A brief explanation (1-2 sentences) of why this book matches or doesn't match their preferences
+
+Consider:
+- Genre and category overlap
+- Author familiarity
+- Thematic similarities
+- Writing style patterns
+- Reading level and complexity
+
+Respond in this exact JSON format (an array with one entry per book, in order):
+[
+  {{"score": 0.85, "explanation": "Explanation for Book 0"}},
+  {{"score": 0.65, "explanation": "Explanation for Book 1"}},
+  ...
+]
+
+Important:
+- Return exactly {len(detected_books)} results in the same order as the input books
+- Only respond with the JSON array, no other text."""
 
         return prompt

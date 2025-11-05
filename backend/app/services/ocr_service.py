@@ -134,13 +134,15 @@ class OCRService:
         """
         Extract book titles from image using Vision Language Model.
 
+        Automatically falls back to other configured providers if primary fails.
+
         Args:
             image_bytes: Raw image bytes
 
         Returns:
             List of extracted titles with confidence scores
         """
-        from app.services.llm.factory import get_llm_provider
+        from app.services.llm.factory import extract_titles_with_fallback
 
         if not settings.LLM_ENABLED:
             logger.warning("LLM is disabled - cannot use VLM extraction")
@@ -149,12 +151,9 @@ class OCRService:
         start_time = time.time()
 
         try:
-            # Get LLM provider (will use vision-capable model)
-            provider = get_llm_provider()
-
-            # Extract titles using VLM
-            logger.info("Extracting book titles using VLM")
-            raw_response = await provider.extract_titles_from_image(image_bytes)
+            # Extract titles using VLM with automatic fallback
+            logger.info("Extracting book titles using VLM (with fallback)")
+            raw_response = await extract_titles_with_fallback(image_bytes)
 
             # Parse and validate JSON response
             try:

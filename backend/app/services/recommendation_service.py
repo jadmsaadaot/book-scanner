@@ -50,11 +50,8 @@ class RecommendationService:
 
         try:
             # Import here to avoid circular imports
-            from app.services.llm import get_llm_provider
+            from app.services.llm.factory import calculate_match_score_with_fallback
             from app.services.llm.base import sample_library_books
-
-            # Get LLM provider
-            provider = get_llm_provider()
 
             # Convert Book objects to dicts for LLM
             library_dicts = [
@@ -71,8 +68,8 @@ class RecommendationService:
             # Sample library books with deterministic shuffling to avoid bias
             sampled_library = sample_library_books(library_dicts, user_id)
 
-            # Get LLM score and explanation
-            score, explanation = await provider.calculate_book_match_score(
+            # Get LLM score and explanation with automatic fallback
+            score, explanation = await calculate_match_score_with_fallback(
                 detected_book, sampled_library
             )
 
@@ -261,33 +258,59 @@ class RecommendationService:
         all_books = []
         recommendations = []
 
-        for book in detected_books:
-            # Calculate match score
-            if settings.LLM_ENABLED:
-                try:
-                    # Use LLM-based scoring with deterministic sampling
-                    match_score, explanation = await RecommendationService.calculate_match_score_llm(
-                        book, user_library, user_id
-                    )
+        # Calculate match scores - use batch scoring for efficiency
+        if settings.LLM_ENABLED and detected_books:
+            try:
+                # Import here to avoid circular imports
+                from app.services.llm.factory import calculate_batch_scores_with_fallback
+                from app.services.llm.base import sample_library_books
+
+                # Convert Book objects to dicts for LLM
+                library_dicts = [
+                    {
+                        "title": book.title,
+                        "author": book.author,
+                        "categories": book.categories,
+                        "description": book.description,
+                        "average_rating": book.average_rating,
+                    }
+                    for book in user_library
+                ]
+
+                # Sample library books with deterministic shuffling to avoid bias
+                sampled_library = sample_library_books(library_dicts, user_id)
+
+                # Get all scores in a single batch LLM call
+                logger.info(f"Batch scoring {len(detected_books)} books with LLM")
+                batch_results = await calculate_batch_scores_with_fallback(
+                    detected_books, sampled_library
+                )
+
+                # Apply scores to books
+                for book, (match_score, explanation) in zip(detected_books, batch_results):
                     book["match_score"] = match_score
                     book["recommendation_explanation"] = explanation
-                except Exception as e:
-                    # Fallback to rule-based if LLM fails
-                    logger.error(f"Error getting LLM score for book '{book.get('title')}': {str(e)}")
+
+            except Exception as e:
+                # Fallback to rule-based scoring for all books if batch fails
+                logger.error(f"Batch LLM scoring failed: {str(e)}, falling back to rule-based")
+                for book in detected_books:
                     match_score = RecommendationService.calculate_match_score_rule_based(
                         book, user_library
                     )
                     book["match_score"] = match_score
-                    book["recommendation_explanation"] = "Rule-based recommendation (LLM error)"
-            else:
-                # Use rule-based scoring
+                    book["recommendation_explanation"] = "Rule-based recommendation (LLM batch error)"
+        else:
+            # Use rule-based scoring
+            for book in detected_books:
                 match_score = RecommendationService.calculate_match_score_rule_based(
                     book, user_library
                 )
                 book["match_score"] = match_score
                 book["recommendation_explanation"] = "Rule-based recommendation"
 
-            # Check if in library
+        # Check if each book is in library and build results
+        for book in detected_books:
             in_library = RecommendationService.is_book_in_library(
                 session, user_id, book.get("google_books_id")
             )

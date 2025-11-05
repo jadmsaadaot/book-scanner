@@ -1,5 +1,6 @@
 """Factory for creating and managing LLM providers."""
 
+import logging
 from typing import Literal
 
 from app.core.config import settings
@@ -7,6 +8,8 @@ from app.services.llm.base import LLMProvider
 from app.services.llm.providers.anthropic import AnthropicProvider
 from app.services.llm.providers.google import GoogleProvider
 from app.services.llm.providers.openai import OpenAIProvider
+
+logger = logging.getLogger(__name__)
 
 LLMProviderType = Literal["openai", "anthropic", "google"]
 
@@ -80,3 +83,207 @@ def get_available_providers() -> list[LLMProviderType]:
             available.append(name)  # type: ignore
 
     return available
+
+
+async def extract_titles_with_fallback(image_bytes: bytes) -> str:
+    """
+    Extract titles from image with automatic provider fallback.
+
+    Tries primary provider first, then falls back to other configured providers
+    if the primary one fails.
+
+    Args:
+        image_bytes: Raw image bytes
+
+    Returns:
+        Raw JSON string response from successful provider
+
+    Raises:
+        RuntimeError: If all providers fail
+    """
+    available = get_available_providers()
+
+    if not available:
+        raise RuntimeError(
+            "No LLM providers are configured. Please set at least one API key: "
+            "OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY"
+        )
+
+    # Map provider names to instances
+    provider_classes = {
+        "openai": OpenAIProvider,
+        "anthropic": AnthropicProvider,
+        "google": GoogleProvider,
+    }
+
+    # Try providers in order: primary first, then others
+    primary_provider = settings.LLM_PROVIDER
+    providers_to_try = [primary_provider] + [p for p in available if p != primary_provider]
+
+    errors = []
+
+    for provider_name in providers_to_try:
+        if provider_name not in available:
+            continue
+
+        try:
+            provider = provider_classes[provider_name]()
+            logger.info(f"Attempting VLM extraction with {provider_name}")
+
+            result = await provider.extract_titles_from_image(image_bytes)
+
+            logger.info(f"✅ VLM extraction succeeded with {provider_name}")
+            return result
+
+        except Exception as e:
+            error_msg = f"{provider_name}: {str(e)}"
+            errors.append(error_msg)
+            logger.warning(f"❌ VLM extraction failed with {provider_name}: {e}")
+
+            # Continue to next provider
+            continue
+
+    # All providers failed
+    raise RuntimeError(
+        f"All VLM providers failed. Errors: {'; '.join(errors)}"
+    )
+
+
+async def calculate_match_score_with_fallback(
+    detected_book: dict,
+    user_library: list[dict]
+) -> tuple[float, str]:
+    """
+    Calculate book match score with automatic provider fallback.
+
+    Tries primary provider first, then falls back to other configured providers
+    if the primary one fails.
+
+    Args:
+        detected_book: Book metadata to evaluate
+        user_library: User's library books
+
+    Returns:
+        Tuple of (score, explanation)
+
+    Raises:
+        RuntimeError: If all providers fail
+    """
+    available = get_available_providers()
+
+    if not available:
+        raise RuntimeError(
+            "No LLM providers are configured. Please set at least one API key: "
+            "OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY"
+        )
+
+    # Map provider names to instances
+    provider_classes = {
+        "openai": OpenAIProvider,
+        "anthropic": AnthropicProvider,
+        "google": GoogleProvider,
+    }
+
+    # Try providers in order: primary first, then others
+    primary_provider = settings.LLM_PROVIDER
+    providers_to_try = [primary_provider] + [p for p in available if p != primary_provider]
+
+    errors = []
+
+    for provider_name in providers_to_try:
+        if provider_name not in available:
+            continue
+
+        try:
+            provider = provider_classes[provider_name]()
+            logger.info(f"Attempting recommendation scoring with {provider_name}")
+
+            score, explanation = await provider.calculate_book_match_score(
+                detected_book, user_library
+            )
+
+            logger.info(f"✅ Recommendation scoring succeeded with {provider_name}")
+            return score, explanation
+
+        except Exception as e:
+            error_msg = f"{provider_name}: {str(e)}"
+            errors.append(error_msg)
+            logger.warning(f"❌ Recommendation scoring failed with {provider_name}: {e}")
+
+            # Continue to next provider
+            continue
+
+    # All providers failed
+    raise RuntimeError(
+        f"All recommendation providers failed. Errors: {'; '.join(errors)}"
+    )
+
+
+async def calculate_batch_scores_with_fallback(
+    detected_books: list[dict],
+    user_library: list[dict]
+) -> list[tuple[float, str]]:
+    """
+    Calculate batch match scores with automatic provider fallback.
+
+    Tries primary provider first, then falls back to other configured providers
+    if the primary one fails.
+
+    Args:
+        detected_books: List of book metadata to evaluate
+        user_library: User's library books
+
+    Returns:
+        List of tuples (score, explanation) in the same order as detected_books
+
+    Raises:
+        RuntimeError: If all providers fail
+    """
+    available = get_available_providers()
+
+    if not available:
+        raise RuntimeError(
+            "No LLM providers are configured. Please set at least one API key: "
+            "OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY"
+        )
+
+    # Map provider names to instances
+    provider_classes = {
+        "openai": OpenAIProvider,
+        "anthropic": AnthropicProvider,
+        "google": GoogleProvider,
+    }
+
+    # Try providers in order: primary first, then others
+    primary_provider = settings.LLM_PROVIDER
+    providers_to_try = [primary_provider] + [p for p in available if p != primary_provider]
+
+    errors = []
+
+    for provider_name in providers_to_try:
+        if provider_name not in available:
+            continue
+
+        try:
+            provider = provider_classes[provider_name]()
+            logger.info(f"Attempting batch recommendation scoring with {provider_name}")
+
+            results = await provider.calculate_batch_match_scores(
+                detected_books, user_library
+            )
+
+            logger.info(f"✅ Batch recommendation scoring succeeded with {provider_name}")
+            return results
+
+        except Exception as e:
+            error_msg = f"{provider_name}: {str(e)}"
+            errors.append(error_msg)
+            logger.warning(f"❌ Batch recommendation scoring failed with {provider_name}: {e}")
+
+            # Continue to next provider
+            continue
+
+    # All providers failed
+    raise RuntimeError(
+        f"All batch recommendation providers failed. Errors: {'; '.join(errors)}"
+    )

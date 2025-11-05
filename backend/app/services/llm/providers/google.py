@@ -155,3 +155,79 @@ If you cannot identify any book titles with reasonable confidence, return an emp
             raise ValueError(f"Invalid JSON response from Google Gemini: {e}") from e
         except Exception as e:
             raise RuntimeError(f"Google Gemini API error: {e}") from e
+
+    async def calculate_batch_match_scores(
+        self,
+        detected_books: list[dict[str, Any]],
+        user_library: list[dict[str, Any]],
+    ) -> list[tuple[float, str]]:
+        """
+        Calculate match scores for multiple books in a single API call.
+
+        Args:
+            detected_books: List of book metadata to evaluate
+            user_library: User's library books
+
+        Returns:
+            List of tuples (score, explanation) in the same order as detected_books
+        """
+        if not self.model:
+            raise RuntimeError("Google Gemini client not initialized. Check API key.")
+
+        if not detected_books:
+            return []
+
+        prompt = self._build_batch_recommendation_prompt(detected_books, user_library)
+
+        try:
+            # Use higher max_output_tokens for batch processing
+            batch_model = genai.GenerativeModel(
+                model_name=self.model_name,
+                generation_config={
+                    "temperature": 0.3,
+                    "max_output_tokens": 2000,  # More tokens for multiple books
+                },
+            )
+
+            response = await batch_model.generate_content_async(prompt)
+
+            content = response.text if response.text else ""
+            if not content:
+                raise ValueError("Empty response from Google Gemini")
+
+            # Clean markdown code blocks if present
+            content = content.strip()
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+
+            # Parse JSON response
+            results = json.loads(content)
+
+            if not isinstance(results, list):
+                raise ValueError("Expected JSON array response")
+
+            if len(results) != len(detected_books):
+                raise ValueError(
+                    f"Expected {len(detected_books)} results, got {len(results)}"
+                )
+
+            # Extract scores and explanations
+            parsed_results = []
+            for result in results:
+                score = float(result.get("score", 0.0))
+                explanation = result.get("explanation", "No explanation provided")
+                # Clamp score to valid range
+                score = max(0.0, min(1.0, score))
+                parsed_results.append((score, explanation))
+
+            return parsed_results
+
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON response from Google Gemini: {e}") from e
+        except Exception as e:
+            raise RuntimeError(f"Google Gemini batch API error: {e}") from e
