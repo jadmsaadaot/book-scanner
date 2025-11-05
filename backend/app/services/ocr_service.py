@@ -7,6 +7,7 @@ for better accuracy on book covers and shelf photos.
 import io
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -30,6 +31,35 @@ MAX_TITLE_LENGTH = getattr(settings, 'OCR_MAX_TITLE_LENGTH', 200)
 MIN_CONFIDENCE = 0.3  # Minimum confidence threshold to include a title
 
 
+def repair_json(json_str: str) -> str:
+    """
+    Attempt to repair common JSON formatting issues from LLM responses.
+
+    Common issues:
+    - Trailing commas in arrays/objects
+    - Unterminated strings (truncated responses)
+    """
+    # Remove trailing commas before closing brackets/braces
+    json_str = re.sub(r',\s*([}\]])', r'\1', json_str)
+
+    # If the JSON appears truncated (doesn't end with ] or }), try to close it
+    stripped = json_str.rstrip()
+    if stripped and not stripped.endswith((']', '}')):
+        # Count opening brackets/braces to determine what to close
+        open_brackets = stripped.count('[') - stripped.count(']')
+        open_braces = stripped.count('{') - stripped.count('}')
+
+        # Close any unterminated strings first
+        if stripped.count('"') % 2 != 0:
+            json_str = stripped + '"'
+            stripped = json_str
+
+        # Close objects and arrays
+        json_str = stripped + ('}' * open_braces) + (']' * open_brackets)
+
+    return json_str
+
+
 class VisualContext(BaseModel):
     """Visual context extracted from book cover/spine."""
 
@@ -43,6 +73,7 @@ class ExtractedTitle(BaseModel):
     """Validated VLM output for a single book title."""
 
     title: str = Field(min_length=1, max_length=MAX_TITLE_LENGTH)
+    author: str | None = Field(None, description="Book author name if visible")
     confidence: float = Field(ge=0.0, le=1.0)
     visual_context: VisualContext | None = Field(None, description="Visual context from cover/spine")
 
@@ -56,6 +87,16 @@ class ExtractedTitle(BaseModel):
         if not v:
             raise ValueError("Title is empty after cleaning")
 
+        return v
+
+    @validator('author')
+    def validate_author(cls, v):
+        """Validate and clean author name."""
+        if v:
+            # Remove excessive whitespace
+            v = " ".join(v.split())
+            # Return None if empty after cleaning
+            return v if v else None
         return v
 
 
@@ -83,7 +124,7 @@ class OCRService:
     """Service for extracting book titles from images using VLMs."""
 
     @staticmethod
-    def extract_text(image_bytes: bytes) -> dict[str, Any]:
+    async def extract_text(image_bytes: bytes) -> dict[str, Any]:
         """
         Extract text from image bytes using Vision Language Models.
 
@@ -98,18 +139,9 @@ class OCRService:
         """
         # For backward compatibility, we'll call extract_book_titles
         # and format the response to match the old Tesseract format
-        import asyncio
-
         try:
-            # Run the async extraction in sync context
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                titles = loop.run_until_complete(
-                    OCRService.extract_book_titles_vlm(image_bytes)
-                )
-            finally:
-                loop.close()
+            # Use await since we're in an async context
+            titles = await OCRService.extract_book_titles_vlm(image_bytes)
 
             # Format as text (one title per line)
             text = "\n".join([t["title"] for t in titles])
@@ -177,17 +209,25 @@ class OCRService:
                     response_text = response_text[:-3]
                 response_text = response_text.strip()
 
-                parsed = json.loads(response_text)
+                # Try to parse JSON, with repair attempt on failure
+                try:
+                    parsed = json.loads(response_text)
+                except json.JSONDecodeError:
+                    # Attempt to repair common JSON issues
+                    logger.warning("Initial JSON parse failed, attempting repair...")
+                    repaired = repair_json(response_text)
+                    parsed = json.loads(repaired)  # This will raise if repair didn't work
 
                 # Validate with Pydantic
                 validated = VLMTitleExtractionResponse(
                     titles=[ExtractedTitle(**item) for item in parsed]
                 )
 
-                # Filter by minimum confidence and include visual context
+                # Filter by minimum confidence and include author + visual context
                 titles = [
                     {
                         "title": t.title,
+                        "author": t.author,
                         "confidence": t.confidence,
                         "visual_context": t.visual_context.dict(exclude_none=True) if t.visual_context else None
                     }
@@ -205,7 +245,9 @@ class OCRService:
                 return titles
 
             except (json.JSONDecodeError, ValueError) as e:
-                logger.error(f"VLM returned invalid JSON: {raw_response[:200]}, error: {e}")
+                logger.error(f"VLM returned invalid JSON, error: {e}")
+                logger.error(f"Raw response (first 500 chars): {raw_response[:500]}")
+                logger.error(f"Cleaned response (first 500 chars): {response_text[:500]}")
                 return []
 
         except Exception as e:

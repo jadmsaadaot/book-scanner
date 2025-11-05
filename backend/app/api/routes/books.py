@@ -65,7 +65,7 @@ async def scan_books(
             raise HTTPException(status_code=400, detail="File is empty")
 
         # Step 1: Extract text using OCR
-        ocr_result = OCRService.extract_text(image_bytes)
+        ocr_result = await OCRService.extract_text(image_bytes)
 
         if ocr_result.get("error"):
             raise HTTPException(
@@ -83,9 +83,10 @@ async def scan_books(
         async def search_title(title_data: dict[str, Any]) -> dict[str, Any] | None:
             """Helper to search a single title and add confidence."""
             title = title_data["title"]
+            author = title_data.get("author")  # May be None if not visible
             confidence = title_data["confidence"]
 
-            book_data = await GoogleBooksService.fuzzy_search_book(title)
+            book_data = await GoogleBooksService.fuzzy_search_book(title, author=author)
             if book_data:
                 book_data["confidence"] = confidence
                 return book_data

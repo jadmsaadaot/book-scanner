@@ -81,12 +81,13 @@ class OpenAIProvider(LLMProvider):
             base64_image = base64.b64encode(image_bytes).decode('utf-8')
 
             # Create vision prompt with visual context extraction
-            prompt = """Analyze this image of a bookshelf or book covers and extract all visible book titles WITH visual context.
+            prompt = """Analyze this image of a bookshelf or book covers and extract all visible book titles WITH author names and visual context.
 
 For each book you can clearly identify, provide:
 1. title: The full book title (as accurately as you can read it)
-2. confidence: Score from 0.0 to 1.0 based on how clearly you can read the title
-3. visual_context: An object with visual insights about the book:
+2. author: The author's name if visible on the cover/spine (null if not visible or unclear)
+3. confidence: Score from 0.0 to 1.0 based on how clearly you can read the title
+4. visual_context: An object with visual insights about the book:
    - cover_style: Description of the cover art/design (e.g., "Minimalist modern design", "Illustrated fantasy with dragons", "Classic literature leather-bound")
    - apparent_genre: Genre inferred from visual cues (e.g., "Fantasy", "Mystery", "Romance", "Science Fiction", "Non-fiction")
    - target_audience: Target audience inferred from design (e.g., "Young adult", "Children", "Adult literary", "General audience")
@@ -94,7 +95,7 @@ For each book you can clearly identify, provide:
 
 Rules:
 - Only include actual book titles you can see in the image
-- DO NOT include author names, publisher names, or other text in the title field
+- Extract author names separately in the "author" field - DO NOT include them in the title
 - If you can only partially read a title, include what you can see and lower the confidence
 - If text is blurry or unclear, give it a lower confidence score (0.3-0.6)
 - If text is crystal clear, give it a high confidence score (0.8-1.0)
@@ -103,9 +104,11 @@ Rules:
 - Visual context should be concise (1-5 words per field)
 - If you can't determine a visual context field, omit it or set to null
 
-Return ONLY a JSON array with this exact format (no other text):
+CRITICAL: Return ONLY valid JSON - no markdown formatting, no code blocks, no extra text.
+Your entire response must be ONLY the JSON array below:
 [{
   "title": "The Hobbit",
+  "author": "J.R.R. Tolkien",
   "confidence": 0.95,
   "visual_context": {
     "cover_style": "Illustrated fantasy with dragon artwork",
@@ -115,6 +118,7 @@ Return ONLY a JSON array with this exact format (no other text):
   }
 }, {
   "title": "1984",
+  "author": "George Orwell",
   "confidence": 0.85,
   "visual_context": {
     "cover_style": "Minimalist dystopian design",
@@ -143,7 +147,7 @@ If you cannot identify any book titles with reasonable confidence, return an emp
                     }
                 ],
                 temperature=0.2,
-                max_tokens=1000,
+                max_tokens=4000,  # Support ~30 books with visual context (~120 tokens/book)
             )
 
             content = response.choices[0].message.content

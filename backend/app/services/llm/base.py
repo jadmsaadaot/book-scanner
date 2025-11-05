@@ -218,7 +218,7 @@ Detected book to evaluate:
 
 Please provide:
 1. A match score from 0.0 to 1.0 (where 1.0 is a perfect match for this reader)
-2. A brief explanation (1-2 sentences) of why this book matches or doesn't match their preferences
+2. A brief, user-friendly explanation (1-2 sentences) of why this book would interest them based on their reading history
 
 Consider:
 - Genre and category overlap
@@ -230,9 +230,12 @@ Consider:
 - Popularity and ratings (balance widely-loved books with hidden gems based on reader count)
 
 Respond in this exact JSON format:
-{{"score": 0.85, "explanation": "Your explanation here"}}
+{{"score": 0.85, "explanation": "This book shares the accessible non-fiction style you enjoyed in Gladwell's works, with a focus on self-improvement themes."}}
 
-Important: Only respond with the JSON object, no other text."""
+Important:
+- Write explanations in second person ("you", "your") to speak directly to the reader
+- Speak naturally about why the book matches their interests
+- Only respond with the JSON object, no other text."""
 
         return prompt
 
@@ -282,9 +285,9 @@ Important: Only respond with the JSON object, no other text."""
 Detected books to evaluate:
 {books_text}
 
-For EACH book (Book 0 through Book {len(detected_books) - 1}), provide:
+For EACH book listed above (in order), provide:
 1. A match score from 0.0 to 1.0 (where 1.0 is a perfect match for this reader)
-2. A brief explanation (1-2 sentences) of why this book matches or doesn't match their preferences
+2. A brief, user-friendly explanation (1-2 sentences) of why this book would interest them based on their reading history
 
 Consider:
 - Genre and category overlap
@@ -297,13 +300,15 @@ Consider:
 
 Respond in this exact JSON format (an array with one entry per book, in order):
 [
-  {{"score": 0.85, "explanation": "Explanation for Book 0"}},
-  {{"score": 0.65, "explanation": "Explanation for Book 1"}},
+  {{"score": 0.85, "explanation": "This book shares the accessible non-fiction style you enjoyed in Gladwell's works, with a focus on self-improvement themes."}},
+  {{"score": 0.65, "explanation": "While fantasy isn't your usual genre, this book's character-driven narrative aligns with your preference for literary fiction."}},
   ...
 ]
 
 Important:
 - Return exactly {len(detected_books)} results in the same order as the input books
+- Write explanations in second person ("you", "your") to speak directly to the reader
+- DO NOT reference "Book 0", "Book 1" or use technical indexing - speak naturally about the book itself
 - Only respond with the JSON array, no other text."""
 
         return prompt
