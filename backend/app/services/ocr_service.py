@@ -30,11 +30,21 @@ MAX_TITLE_LENGTH = getattr(settings, 'OCR_MAX_TITLE_LENGTH', 200)
 MIN_CONFIDENCE = 0.3  # Minimum confidence threshold to include a title
 
 
+class VisualContext(BaseModel):
+    """Visual context extracted from book cover/spine."""
+
+    cover_style: str | None = Field(None, description="Description of cover art/design style")
+    apparent_genre: str | None = Field(None, description="Genre inferred from visual cues")
+    target_audience: str | None = Field(None, description="Target audience inferred from design")
+    notable_features: str | None = Field(None, description="Distinctive visual elements")
+
+
 class ExtractedTitle(BaseModel):
     """Validated VLM output for a single book title."""
 
     title: str = Field(min_length=1, max_length=MAX_TITLE_LENGTH)
     confidence: float = Field(ge=0.0, le=1.0)
+    visual_context: VisualContext | None = Field(None, description="Visual context from cover/spine")
 
     @validator('title')
     def validate_title(cls, v):
@@ -174,9 +184,13 @@ class OCRService:
                     titles=[ExtractedTitle(**item) for item in parsed]
                 )
 
-                # Filter by minimum confidence
+                # Filter by minimum confidence and include visual context
                 titles = [
-                    {"title": t.title, "confidence": t.confidence}
+                    {
+                        "title": t.title,
+                        "confidence": t.confidence,
+                        "visual_context": t.visual_context.dict(exclude_none=True) if t.visual_context else None
+                    }
                     for t in validated.titles
                     if t.confidence >= MIN_CONFIDENCE
                 ]

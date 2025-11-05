@@ -273,6 +273,7 @@ class RecommendationService:
                         "categories": book.categories,
                         "description": book.description,
                         "average_rating": book.average_rating,
+                        "ratings_count": book.ratings_count,
                     }
                     for book in user_library
                 ]

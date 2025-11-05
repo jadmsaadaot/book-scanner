@@ -80,24 +80,48 @@ class OpenAIProvider(LLMProvider):
             # Encode image to base64
             base64_image = base64.b64encode(image_bytes).decode('utf-8')
 
-            # Create vision prompt
-            prompt = """Analyze this image of a bookshelf or book covers and extract all visible book titles.
+            # Create vision prompt with visual context extraction
+            prompt = """Analyze this image of a bookshelf or book covers and extract all visible book titles WITH visual context.
 
 For each book you can clearly identify, provide:
-1. The full title (as accurately as you can read it)
-2. A confidence score from 0.0 to 1.0 based on how clearly you can read the title
+1. title: The full book title (as accurately as you can read it)
+2. confidence: Score from 0.0 to 1.0 based on how clearly you can read the title
+3. visual_context: An object with visual insights about the book:
+   - cover_style: Description of the cover art/design (e.g., "Minimalist modern design", "Illustrated fantasy with dragons", "Classic literature leather-bound")
+   - apparent_genre: Genre inferred from visual cues (e.g., "Fantasy", "Mystery", "Romance", "Science Fiction", "Non-fiction")
+   - target_audience: Target audience inferred from design (e.g., "Young adult", "Children", "Adult literary", "General audience")
+   - notable_features: Any distinctive visual elements (e.g., "Award winner badge", "Series volume number", "Well-worn spine indicating frequent reading")
 
 Rules:
 - Only include actual book titles you can see in the image
-- DO NOT include author names, publisher names, or other text
+- DO NOT include author names, publisher names, or other text in the title field
 - If you can only partially read a title, include what you can see and lower the confidence
 - If text is blurry or unclear, give it a lower confidence score (0.3-0.6)
 - If text is crystal clear, give it a high confidence score (0.8-1.0)
 - Ignore ISBN numbers, prices, barcodes, or other metadata
 - Include both horizontal and vertical text (book spines)
+- Visual context should be concise (1-5 words per field)
+- If you can't determine a visual context field, omit it or set to null
 
 Return ONLY a JSON array with this exact format (no other text):
-[{"title": "Book Title Here", "confidence": 0.95}, {"title": "Another Book", "confidence": 0.80}]
+[{
+  "title": "The Hobbit",
+  "confidence": 0.95,
+  "visual_context": {
+    "cover_style": "Illustrated fantasy with dragon artwork",
+    "apparent_genre": "Fantasy adventure",
+    "target_audience": "Young adult",
+    "notable_features": "Leather-bound collector's edition"
+  }
+}, {
+  "title": "1984",
+  "confidence": 0.85,
+  "visual_context": {
+    "cover_style": "Minimalist dystopian design",
+    "apparent_genre": "Literary fiction",
+    "target_audience": "Adult"
+  }
+}]
 
 If you cannot identify any book titles with reasonable confidence, return an empty array: []"""
 

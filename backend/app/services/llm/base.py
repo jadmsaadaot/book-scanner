@@ -153,6 +153,26 @@ class LLMProvider(ABC):
         if rating := book.get("average_rating"):
             parts.append(f"Rating: {rating}/5")
 
+        # Add ratings count (popularity signal)
+        if ratings_count := book.get("ratings_count"):
+            # Format with commas for readability
+            parts.append(f"Popularity: {ratings_count:,} readers")
+
+        # Add visual context if available
+        if visual_context := book.get("visual_context"):
+            visual_parts = []
+            if cover_style := visual_context.get("cover_style"):
+                visual_parts.append(f"Cover Style: {cover_style}")
+            if apparent_genre := visual_context.get("apparent_genre"):
+                visual_parts.append(f"Visual Genre: {apparent_genre}")
+            if target_audience := visual_context.get("target_audience"):
+                visual_parts.append(f"Visual Audience: {target_audience}")
+            if notable_features := visual_context.get("notable_features"):
+                visual_parts.append(f"Notable Features: {notable_features}")
+
+            if visual_parts:
+                parts.append("Visual Context: " + ", ".join(visual_parts))
+
         return "\n".join(parts)
 
     def _build_recommendation_prompt(
@@ -206,6 +226,8 @@ Consider:
 - Thematic similarities
 - Writing style patterns
 - Reading level and complexity
+- Visual context (cover style, apparent genre, target audience) - these visual cues can reveal tone, maturity level, and genre that complement the metadata
+- Popularity and ratings (balance widely-loved books with hidden gems based on reader count)
 
 Respond in this exact JSON format:
 {{"score": 0.85, "explanation": "Your explanation here"}}
@@ -270,6 +292,8 @@ Consider:
 - Thematic similarities
 - Writing style patterns
 - Reading level and complexity
+- Visual context (cover style, apparent genre, target audience, notable features) - these visual cues can reveal tone, maturity level, and genre that complement the metadata
+- Popularity and ratings (balance widely-loved books with hidden gems based on reader count)
 
 Respond in this exact JSON format (an array with one entry per book, in order):
 [
