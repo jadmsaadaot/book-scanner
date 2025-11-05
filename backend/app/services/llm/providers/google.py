@@ -1,9 +1,12 @@
 """Google Gemini provider for LLM-based recommendations."""
 
+import base64
 import json
 from typing import Any
 
 import google.generativeai as genai
+from PIL import Image
+import io
 
 from app.core.config import settings
 from app.services.llm.base import LLMProvider
@@ -60,6 +63,56 @@ class GoogleProvider(LLMProvider):
 
         except Exception as e:
             raise RuntimeError(f"Google Gemini API error: {e}") from e
+
+    async def extract_titles_from_image(self, image_bytes: bytes) -> str:
+        """
+        Extract book titles directly from an image using Google Gemini Vision.
+
+        Args:
+            image_bytes: Raw image bytes (JPEG, PNG, etc.)
+
+        Returns:
+            Raw JSON string response with extracted titles and confidence scores
+        """
+        if not self.model:
+            raise RuntimeError("Google Gemini client not initialized. Check API key.")
+
+        try:
+            # Load image from bytes
+            image = Image.open(io.BytesIO(image_bytes))
+
+            # Create vision prompt
+            prompt = """Analyze this image of a bookshelf or book covers and extract all visible book titles.
+
+For each book you can clearly identify, provide:
+1. The full title (as accurately as you can read it)
+2. A confidence score from 0.0 to 1.0 based on how clearly you can read the title
+
+Rules:
+- Only include actual book titles you can see in the image
+- DO NOT include author names, publisher names, or other text
+- If you can only partially read a title, include what you can see and lower the confidence
+- If text is blurry or unclear, give it a lower confidence score (0.3-0.6)
+- If text is crystal clear, give it a high confidence score (0.8-1.0)
+- Ignore ISBN numbers, prices, barcodes, or other metadata
+- Include both horizontal and vertical text (book spines)
+
+Return ONLY a JSON array with this exact format (no other text):
+[{"title": "Book Title Here", "confidence": 0.95}, {"title": "Another Book", "confidence": 0.80}]
+
+If you cannot identify any book titles with reasonable confidence, return an empty array: []"""
+
+            # Generate content with vision
+            response = await self.model.generate_content_async([prompt, image])
+            content = response.text if response.text else ""
+
+            if not content:
+                raise ValueError("Empty response from Google Gemini Vision")
+
+            return content.strip()
+
+        except Exception as e:
+            raise RuntimeError(f"Google Gemini Vision API error: {e}") from e
 
     async def calculate_book_match_score(
         self,

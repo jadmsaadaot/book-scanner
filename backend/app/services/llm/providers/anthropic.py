@@ -1,5 +1,6 @@
 """Anthropic Claude provider for LLM-based recommendations."""
 
+import base64
 import json
 from typing import Any
 
@@ -59,6 +60,87 @@ class AnthropicProvider(LLMProvider):
 
         except Exception as e:
             raise RuntimeError(f"Anthropic API error: {e}") from e
+
+    async def extract_titles_from_image(self, image_bytes: bytes) -> str:
+        """
+        Extract book titles directly from an image using Claude Vision.
+
+        Args:
+            image_bytes: Raw image bytes (JPEG, PNG, etc.)
+
+        Returns:
+            Raw JSON string response with extracted titles and confidence scores
+        """
+        if not self.client:
+            raise RuntimeError("Anthropic client not initialized. Check API key.")
+
+        try:
+            # Encode image to base64
+            base64_image = base64.b64encode(image_bytes).decode('utf-8')
+
+            # Detect image type (default to jpeg if unsure)
+            image_media_type = "image/jpeg"
+            if image_bytes.startswith(b'\x89PNG'):
+                image_media_type = "image/png"
+            elif image_bytes.startswith(b'GIF'):
+                image_media_type = "image/gif"
+            elif image_bytes.startswith(b'WEBP'):
+                image_media_type = "image/webp"
+
+            # Create vision prompt
+            prompt = """Analyze this image of a bookshelf or book covers and extract all visible book titles.
+
+For each book you can clearly identify, provide:
+1. The full title (as accurately as you can read it)
+2. A confidence score from 0.0 to 1.0 based on how clearly you can read the title
+
+Rules:
+- Only include actual book titles you can see in the image
+- DO NOT include author names, publisher names, or other text
+- If you can only partially read a title, include what you can see and lower the confidence
+- If text is blurry or unclear, give it a lower confidence score (0.3-0.6)
+- If text is crystal clear, give it a high confidence score (0.8-1.0)
+- Ignore ISBN numbers, prices, barcodes, or other metadata
+- Include both horizontal and vertical text (book spines)
+
+Return ONLY a JSON array with this exact format (no other text):
+[{"title": "Book Title Here", "confidence": 0.95}, {"title": "Another Book", "confidence": 0.80}]
+
+If you cannot identify any book titles with reasonable confidence, return an empty array: []"""
+
+            response = await self.client.messages.create(
+                model=self.model,
+                max_tokens=1000,
+                temperature=0.2,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": image_media_type,
+                                    "data": base64_image,
+                                },
+                            },
+                            {
+                                "type": "text",
+                                "text": prompt
+                            }
+                        ],
+                    }
+                ],
+            )
+
+            content = response.content[0].text if response.content else ""
+            if not content:
+                raise ValueError("Empty response from Claude Vision")
+
+            return content.strip()
+
+        except Exception as e:
+            raise RuntimeError(f"Claude Vision API error: {e}") from e
 
     async def calculate_book_match_score(
         self,

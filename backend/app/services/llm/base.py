@@ -78,6 +78,19 @@ class LLMProvider(ABC):
         pass
 
     @abstractmethod
+    async def extract_titles_from_image(self, image_bytes: bytes) -> str:
+        """
+        Extract book titles directly from an image using Vision LLM.
+
+        Args:
+            image_bytes: Raw image bytes (JPEG, PNG, etc.)
+
+        Returns:
+            Raw JSON string response with extracted titles and confidence scores
+        """
+        pass
+
+    @abstractmethod
     def is_available(self) -> bool:
         """
         Check if the provider is properly configured and available.
