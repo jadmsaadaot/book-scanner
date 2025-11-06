@@ -142,16 +142,17 @@ class LLMProvider(ABC):
         Returns:
             Formatted prompt string
         """
-        # Format user's library
+        # Format user's library with full context
         if not user_library:
             library_summary = "User has an empty library (new user)."
         else:
             # Limit number of books to stay within token limits
-            recent_books = user_library[:MAX_LIBRARY_BOOKS]
-            library_items = [
-                f"- {book.get('title', 'Unknown')} by {book.get('author', 'Unknown')}"
-                for book in recent_books
-            ]
+            sampled_books = user_library[:MAX_LIBRARY_BOOKS]
+            library_items = []
+            for book in sampled_books:
+                book_summary = self._format_book_summary(book)
+                library_items.append(f"- {book_summary.replace(chr(10), ', ')}")  # Single line per book
+
             library_summary = "User's library:\n" + "\n".join(library_items)
 
             if len(user_library) > MAX_LIBRARY_BOOKS:
@@ -183,20 +184,21 @@ Consider:
 - Thematic similarities
 - Writing style patterns
 - Reading level and complexity
-- Visual context (cover style, apparent genre, target audience, notable features) - these visual cues can reveal tone, maturity level, and genre that complement the metadata
 - Popularity and ratings (balance widely-loved books with hidden gems based on reader count)
 
-Respond in this exact JSON format (an array with one entry per book, in order):
+Respond in this exact JSON format (an array with one entry per book):
 [
-  {{"score": 0.85, "explanation": "This book shares the accessible non-fiction style you enjoyed in Gladwell's works, with a focus on self-improvement themes."}},
-  {{"score": 0.65, "explanation": "While fantasy isn't your usual genre, this book's character-driven narrative aligns with your preference for literary fiction."}},
+  {{"title": "Exact title from Book 0", "score": 0.85, "explanation": "This book shares the accessible non-fiction style you enjoyed in Gladwell's works, with a focus on self-improvement themes."}},
+  {{"title": "Exact title from Book 1", "score": 0.65, "explanation": "While fantasy isn't your usual genre, this book's character-driven narrative aligns with your preference for literary fiction."}},
   ...
 ]
 
-Important:
-- Return exactly {len(detected_books)} results in the same order as the input books
+CRITICAL Requirements:
+- Return exactly {len(detected_books)} results (one per book)
+- MUST include the "title" field with the EXACT title from each book (copy it precisely from the "Title:" field in each Book section above)
+- The title is used to match your response to the correct book - if you return wrong/missing titles, the system will fail
 - Write explanations in second person ("you", "your") to speak directly to the reader
-- DO NOT reference "Book 0", "Book 1" or use technical indexing - speak naturally about the book itself
+- DO NOT reference "Book 0", "Book 1" or use technical indexing in the explanation - speak naturally about the book itself
 - Only respond with the JSON array, no other text."""
 
         return prompt
