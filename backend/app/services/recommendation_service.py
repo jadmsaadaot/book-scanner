@@ -1,96 +1,18 @@
 """Recommendation service for suggesting books based on user's library."""
 
-import hashlib
 import json
 import logging
 from typing import Any
 
-from cachetools import TTLCache
 from sqlmodel import Session, select
 
 from app.core.config import settings
-from app.models import Book, User, UserLibrary
+from app.models import Book, UserLibrary
 
 logger = logging.getLogger(__name__)
 
-# Simple in-memory cache for LLM recommendations
-# TTL of 1 hour, max 1000 entries
-_recommendation_cache: TTLCache = TTLCache(maxsize=1000, ttl=3600)
-
-
 class RecommendationService:
     """Service for generating book recommendations."""
-
-    @staticmethod
-    async def calculate_match_score_llm(
-        detected_book: dict[str, Any], user_library: list[Book], user_id: str
-    ) -> tuple[float, str]:
-        """
-        Calculate match score using LLM with caching.
-
-        Args:
-            detected_book: Book metadata from Google Books
-            user_library: List of books in user's library
-            user_id: User ID for deterministic sampling
-
-        Returns:
-            Tuple of (match_score, explanation)
-        """
-        # Generate cache key based on library and detected book
-        library_ids = sorted([str(book.id) for book in user_library])
-        library_hash = hashlib.md5(
-            "".join(library_ids).encode()
-        ).hexdigest()
-        detected_book_id = detected_book.get("google_books_id", "")
-        cache_key = f"{library_hash}:{detected_book_id}"
-
-        # Check cache
-        if cache_key in _recommendation_cache:
-            return _recommendation_cache[cache_key]
-
-        try:
-            # Import here to avoid circular imports
-            from app.services.llm.factory import calculate_match_score_with_fallback
-            from app.services.llm.base import sample_library_books
-
-            # Convert Book objects to dicts for LLM
-            library_dicts = [
-                {
-                    "title": book.title,
-                    "author": book.author,
-                    "categories": book.categories,
-                    "description": book.description,
-                    "average_rating": book.average_rating,
-                }
-                for book in user_library
-            ]
-
-            # Sample library books with deterministic shuffling to avoid bias
-            sampled_library = sample_library_books(library_dicts, user_id)
-
-            # Get LLM score and explanation with automatic fallback
-            score, explanation = await calculate_match_score_with_fallback(
-                detected_book, sampled_library
-            )
-
-            # Cache the result
-            result = (score, explanation)
-            _recommendation_cache[cache_key] = result
-
-            return result
-
-        except ImportError as e:
-            logger.warning(f"LLM provider not available: {str(e)}")
-            score = RecommendationService.calculate_match_score_rule_based(
-                detected_book, user_library
-            )
-            return score, "Rule-based recommendation (LLM unavailable)"
-        except Exception as e:
-            logger.error(f"Error in LLM-based scoring: {str(e)}", exc_info=True)
-            score = RecommendationService.calculate_match_score_rule_based(
-                detected_book, user_library
-            )
-            return score, "Rule-based recommendation (LLM error)"
 
     @staticmethod
     def calculate_match_score_rule_based(
@@ -207,41 +129,12 @@ class RecommendationService:
         results = session.exec(statement)
         return list(results.all())
 
-    @staticmethod
-    def is_book_in_library(
-        session: Session, user_id: str, google_books_id: str | None
-    ) -> bool:
-        """
-        Check if a book is already in user's library.
-
-        Args:
-            session: Database session
-            user_id: User UUID
-            google_books_id: Google Books volume ID
-
-        Returns:
-            True if book is in library, False otherwise
-        """
-        if not google_books_id:
-            return False
-
-        statement = (
-            select(UserLibrary)
-            .join(Book)
-            .where(
-                UserLibrary.user_id == user_id,
-                Book.google_books_id == google_books_id,
-            )
-        )
-        result = session.exec(statement).first()
-        return result is not None
 
     @staticmethod
     async def filter_and_rank_recommendations(
         detected_books: list[dict[str, Any]],
         user_library: list[Book],
         user_id: str,
-        session: Session,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """
         Filter and rank detected books into recommendations.
@@ -250,7 +143,6 @@ class RecommendationService:
             detected_books: List of books detected from scan
             user_library: User's library books
             user_id: User UUID
-            session: Database session
 
         Returns:
             Tuple of (all_detected_books, recommendations)
@@ -287,10 +179,26 @@ class RecommendationService:
                     detected_books, sampled_library
                 )
 
-                # Apply scores to books
-                for book, (match_score, explanation) in zip(detected_books, batch_results):
-                    book["match_score"] = match_score
-                    book["recommendation_explanation"] = explanation
+                # Create a mapping of title -> (score, explanation) for safe matching
+                results_by_title = {
+                    result["title"]: (result["score"], result["explanation"])
+                    for result in batch_results
+                }
+
+                # Apply scores to books by matching titles
+                for book in detected_books:
+                    book_title = book.get("title", "")
+                    if book_title in results_by_title:
+                        match_score, explanation = results_by_title[book_title]
+                        book["match_score"] = match_score
+                        book["recommendation_explanation"] = explanation
+                    else:
+                        # Fallback if LLM didn't return this book (shouldn't happen)
+                        logger.warning(f"LLM did not return score for book: {book_title}")
+                        book["match_score"] = RecommendationService.calculate_match_score_rule_based(
+                            book, user_library
+                        )
+                        book["recommendation_explanation"] = "Rule-based recommendation (LLM missing)"
 
             except Exception as e:
                 # Fallback to rule-based scoring for all books if batch fails
@@ -310,11 +218,17 @@ class RecommendationService:
                 book["match_score"] = match_score
                 book["recommendation_explanation"] = "Rule-based recommendation"
 
+        # Build set of google_books_ids from user's library for O(1) lookup
+        library_google_ids = {
+            book.google_books_id
+            for book in user_library
+            if book.google_books_id
+        }
+
         # Check if each book is in library and build results
         for book in detected_books:
-            in_library = RecommendationService.is_book_in_library(
-                session, user_id, book.get("google_books_id")
-            )
+            google_books_id = book.get("google_books_id")
+            in_library = google_books_id in library_google_ids if google_books_id else False
             book["in_library"] = in_library
 
             all_books.append(book)

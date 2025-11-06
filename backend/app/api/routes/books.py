@@ -35,7 +35,7 @@ async def scan_books(
     session: SessionDep,
     current_user: CurrentUser,
     file: UploadFile = File(...),
-) -> Any:
+) -> ScanResult:
     """
     Scan an image of books and return detected books with recommendations.
 
@@ -72,20 +72,18 @@ async def scan_books(
 
         # Search for each title in Google Books (in parallel)
         async def search_title(title_data: dict[str, Any]) -> dict[str, Any] | None:
-            """Helper to search a single title and add confidence."""
-            title = title_data["title"]
-            author = title_data.get("author")
-            confidence = title_data["confidence"]
-
-            book_data = await GoogleBooksService.fuzzy_search_book(title, author=author)
+            book_data = await GoogleBooksService.fuzzy_search_book(
+                title_data["title"], author=title_data.get("author")
+            )
             if book_data:
-                book_data["confidence"] = confidence
+                book_data["confidence"] = title_data["confidence"]
                 return book_data
             return None
 
-        # Run all searches in parallel
-        search_tasks = [search_title(title_data) for title_data in detected_titles]
-        search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
+        search_results = await asyncio.gather(
+            *[search_title(title_data) for title_data in detected_titles],
+            return_exceptions=True
+        )
 
         # Filter out None results and exceptions
         detected_books_list: list[dict[str, Any]] = [
@@ -104,13 +102,12 @@ async def scan_books(
                 detected_books_list,
                 user_library,
                 str(current_user.id),
-                session,
             )
         )
 
-        # Convert to response models
-        detected_books = [
-            DetectedBook(
+        # Helper to convert dict to DetectedBook model
+        def to_detected_book(book: dict[str, Any], in_library: bool = False) -> DetectedBook:
+            return DetectedBook(
                 title=book["title"],
                 author=book.get("author"),
                 isbn=book.get("isbn"),
@@ -118,26 +115,13 @@ async def scan_books(
                 google_books_id=book.get("google_books_id"),
                 confidence=book.get("confidence", 0.0),
                 match_score=book.get("match_score", 0.0),
-                in_library=book.get("in_library", False),
+                in_library=in_library,
                 recommendation_explanation=book.get("recommendation_explanation"),
             )
-            for book in all_books
-        ]
 
-        recommendation_books = [
-            DetectedBook(
-                title=book["title"],
-                author=book.get("author"),
-                isbn=book.get("isbn"),
-                thumbnail_url=book.get("thumbnail_url"),
-                google_books_id=book.get("google_books_id"),
-                confidence=book.get("confidence", 0.0),
-                match_score=book.get("match_score", 0.0),
-                in_library=False,
-                recommendation_explanation=book.get("recommendation_explanation"),
-            )
-            for book in recommendations
-        ]
+        # Convert to response models
+        detected_books = [to_detected_book(book, book.get("in_library", False)) for book in all_books]
+        recommendation_books = [to_detected_book(book) for book in recommendations]
 
         return ScanResult(
             detected_books=detected_books, recommendations=recommendation_books

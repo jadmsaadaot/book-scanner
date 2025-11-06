@@ -45,26 +45,6 @@ class LLMProvider(ABC):
     """Abstract base class for LLM providers."""
 
     @abstractmethod
-    async def calculate_book_match_score(
-        self,
-        detected_book: dict[str, Any],
-        user_library: list[dict[str, Any]],
-    ) -> tuple[float, str]:
-        """
-        Calculate how well a detected book matches user's reading preferences using LLM.
-
-        Args:
-            detected_book: Book metadata (title, author, description, categories, etc.)
-            user_library: List of books in user's library with metadata
-
-        Returns:
-            Tuple of (match_score, explanation)
-            - match_score: Float between 0.0 and 1.0
-            - explanation: Human-readable explanation of the recommendation
-        """
-        pass
-
-    @abstractmethod
     async def calculate_batch_match_scores(
         self,
         detected_books: list[dict[str, Any]],
@@ -81,19 +61,6 @@ class LLMProvider(ABC):
             List of tuples (match_score, explanation) in the same order as detected_books
             - match_score: Float between 0.0 and 1.0
             - explanation: Human-readable explanation of the recommendation
-        """
-        pass
-
-    @abstractmethod
-    async def extract_titles(self, prompt: str) -> str:
-        """
-        Extract book titles from OCR text using LLM.
-
-        Args:
-            prompt: Formatted prompt with OCR text and instructions
-
-        Returns:
-            Raw JSON string response from LLM
         """
         pass
 
@@ -158,86 +125,7 @@ class LLMProvider(ABC):
             # Format with commas for readability
             parts.append(f"Popularity: {ratings_count:,} readers")
 
-        # Add visual context if available
-        if visual_context := book.get("visual_context"):
-            visual_parts = []
-            if cover_style := visual_context.get("cover_style"):
-                visual_parts.append(f"Cover Style: {cover_style}")
-            if apparent_genre := visual_context.get("apparent_genre"):
-                visual_parts.append(f"Visual Genre: {apparent_genre}")
-            if target_audience := visual_context.get("target_audience"):
-                visual_parts.append(f"Visual Audience: {target_audience}")
-            if notable_features := visual_context.get("notable_features"):
-                visual_parts.append(f"Notable Features: {notable_features}")
-
-            if visual_parts:
-                parts.append("Visual Context: " + ", ".join(visual_parts))
-
         return "\n".join(parts)
-
-    def _build_recommendation_prompt(
-        self,
-        detected_book: dict[str, Any],
-        user_library: list[dict[str, Any]],
-    ) -> str:
-        """
-        Build the prompt for the LLM to analyze book match.
-
-        Args:
-            detected_book: Book to evaluate
-            user_library: User's library books
-
-        Returns:
-            Formatted prompt string
-        """
-        # Format user's library
-        if not user_library:
-            library_summary = "User has an empty library (new user)."
-        else:
-            # Limit number of books to stay within token limits
-            recent_books = user_library[:MAX_LIBRARY_BOOKS]
-            library_items = [
-                f"- {book.get('title', 'Unknown')} by {book.get('author', 'Unknown')}"
-                for book in recent_books
-            ]
-            library_summary = "User's library:\n" + "\n".join(library_items)
-
-            if len(user_library) > MAX_LIBRARY_BOOKS:
-                remaining = len(user_library) - MAX_LIBRARY_BOOKS
-                library_summary += f"\n... and {remaining} more books"
-
-        # Format detected book
-        detected_summary = self._format_book_summary(detected_book)
-
-        prompt = f"""You are a book recommendation expert. Analyze how well a detected book matches a user's reading preferences based on their library.
-
-{library_summary}
-
-Detected book to evaluate:
-{detected_summary}
-
-Please provide:
-1. A match score from 0.0 to 1.0 (where 1.0 is a perfect match for this reader)
-2. A brief, user-friendly explanation (1-2 sentences) of why this book would interest them based on their reading history
-
-Consider:
-- Genre and category overlap
-- Author familiarity
-- Thematic similarities
-- Writing style patterns
-- Reading level and complexity
-- Visual context (cover style, apparent genre, target audience) - these visual cues can reveal tone, maturity level, and genre that complement the metadata
-- Popularity and ratings (balance widely-loved books with hidden gems based on reader count)
-
-Respond in this exact JSON format:
-{{"score": 0.85, "explanation": "This book shares the accessible non-fiction style you enjoyed in Gladwell's works, with a focus on self-improvement themes."}}
-
-Important:
-- Write explanations in second person ("you", "your") to speak directly to the reader
-- Speak naturally about why the book matches their interests
-- Only respond with the JSON object, no other text."""
-
-        return prompt
 
     def _build_batch_recommendation_prompt(
         self,

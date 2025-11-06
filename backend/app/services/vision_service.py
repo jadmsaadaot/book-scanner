@@ -20,7 +20,6 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Configuration constants
-MIN_TITLE_LENGTH = getattr(settings, 'OCR_MIN_TITLE_LENGTH', 2)
 MAX_TITLE_LENGTH = getattr(settings, 'OCR_MAX_TITLE_LENGTH', 200)
 MIN_CONFIDENCE = 0.3  # Minimum confidence threshold to include a title
 MAX_TITLES = getattr(settings, 'OCR_LLM_MAX_TITLES', 30)
@@ -55,22 +54,12 @@ def repair_json(json_str: str) -> str:
     return json_str
 
 
-class VisualContext(BaseModel):
-    """Visual context extracted from book cover/spine."""
-
-    cover_style: str | None = Field(None, description="Description of cover art/design style")
-    apparent_genre: str | None = Field(None, description="Genre inferred from visual cues")
-    target_audience: str | None = Field(None, description="Target audience inferred from design")
-    notable_features: str | None = Field(None, description="Distinctive visual elements")
-
-
 class ExtractedTitle(BaseModel):
     """Validated VLM output for a single book title."""
 
     title: str = Field(min_length=1, max_length=MAX_TITLE_LENGTH)
     author: str | None = Field(None, description="Book author name if visible")
     confidence: float = Field(ge=0.0, le=1.0)
-    visual_context: VisualContext | None = Field(None, description="Visual context from cover/spine")
 
     @validator('title')
     def validate_title(cls, v):
@@ -127,13 +116,12 @@ class VisionService:
             image_bytes: Raw image bytes
 
         Returns:
-            List of dicts with keys: title, author, confidence, visual_context
+            List of dicts with keys: title, author, confidence
             Example: [
                 {
                     "title": "The Hobbit",
                     "author": "J.R.R. Tolkien",
-                    "confidence": 0.95,
-                    "visual_context": {...}
+                    "confidence": 0.95
                 }
             ]
         """
@@ -182,7 +170,6 @@ class VisionService:
                         "title": t.title,
                         "author": t.author,
                         "confidence": t.confidence,
-                        "visual_context": t.visual_context.dict(exclude_none=True) if t.visual_context else None
                     }
                     for t in validated.titles
                     if t.confidence >= MIN_CONFIDENCE
