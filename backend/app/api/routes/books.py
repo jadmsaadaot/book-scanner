@@ -20,8 +20,8 @@ from app.models import (
     UserLibrary,
 )
 from app.services.google_books_service import GoogleBooksService
-from app.services.ocr_service import OCRService
 from app.services.recommendation_service import RecommendationService
+from app.services.vision_service import VisionService
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -41,8 +41,8 @@ async def scan_books(
 
     This endpoint:
     1. Accepts an image upload
-    2. Uses OCR to extract text (book titles)
-    3. Queries Google Books API for each detected title
+    2. Uses Vision Language Model to extract book titles and authors
+    3. Queries Google Books API for each detected title (parallel)
     4. Compares against user's library
     5. Returns recommendations based on user's reading preferences
     """
@@ -64,26 +64,17 @@ async def scan_books(
         if len(image_bytes) == 0:
             raise HTTPException(status_code=400, detail="File is empty")
 
-        # Step 1: Extract text using OCR
-        ocr_result = await OCRService.extract_text(image_bytes)
+        # Extract book titles using Vision Language Model
+        detected_titles = await VisionService.extract_book_titles(image_bytes)
 
-        if ocr_result.get("error"):
-            raise HTTPException(
-                status_code=500,
-                detail=f"OCR processing failed: {ocr_result['error']}",
-            )
-
-        # Step 2: Extract potential book titles (now async with LLM support)
-        potential_titles = await OCRService.extract_book_titles(ocr_result)
-
-        if not potential_titles:
+        if not detected_titles:
             return ScanResult(detected_books=[], recommendations=[])
 
-        # Step 3: Search for each title in Google Books (in parallel)
+        # Search for each title in Google Books (in parallel)
         async def search_title(title_data: dict[str, Any]) -> dict[str, Any] | None:
             """Helper to search a single title and add confidence."""
             title = title_data["title"]
-            author = title_data.get("author")  # May be None if not visible
+            author = title_data.get("author")
             confidence = title_data["confidence"]
 
             book_data = await GoogleBooksService.fuzzy_search_book(title, author=author)
@@ -93,7 +84,7 @@ async def scan_books(
             return None
 
         # Run all searches in parallel
-        search_tasks = [search_title(title_data) for title_data in potential_titles]
+        search_tasks = [search_title(title_data) for title_data in detected_titles]
         search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
 
         # Filter out None results and exceptions
@@ -102,12 +93,12 @@ async def scan_books(
             if book is not None and not isinstance(book, Exception)
         ]
 
-        # Step 4: Get user's library
+        # Get user's library
         user_library = RecommendationService.get_user_library_books(
             session, str(current_user.id)
         )
 
-        # Step 5: Generate recommendations
+        # Generate recommendations
         all_books, recommendations = (
             await RecommendationService.filter_and_rank_recommendations(
                 detected_books_list,

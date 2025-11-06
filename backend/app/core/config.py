@@ -94,31 +94,17 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
 
-    # LLM Provider Settings
+    # LLM Provider Settings (required for VLM-based title extraction)
     LLM_PROVIDER: Literal["openai", "anthropic", "google"] = "google"
     OPENAI_API_KEY: str | None = None
     ANTHROPIC_API_KEY: str | None = None
     GOOGLE_API_KEY: str | None = None
-    LLM_ENABLED: bool = True  # Enable/disable LLM recommendations (fallback to rule-based)
+    LLM_ENABLED: bool = True  # REQUIRED: Vision Language Models used for title extraction
 
-    # OCR & Title Extraction Settings
-    OCR_LLM_STRATEGY: Literal["conservative", "aggressive", "disabled"] = "conservative"
-    # conservative: LLM only when rules extract 0 titles
-    # aggressive: LLM refines all low-confidence results
-    # disabled: Rules only (no LLM)
+    # Vision Service Settings
     OCR_MIN_TITLE_LENGTH: int = 2  # Allow short titles like "It", "Go"
     OCR_MAX_TITLE_LENGTH: int = 200
-    OCR_MAX_NUMERIC_RATIO: float = 0.5
-    OCR_LLM_MAX_TITLES: int = 20  # Prevent LLM hallucination spam
-    OCR_LLM_CONFIDENCE_THRESHOLD: float = 0.7  # For aggressive mode
-
-    # Image Rotation Detection Settings
-    OCR_ROTATION_MODE: Literal["disabled", "osd_only", "osd_fallback"] = "osd_fallback"
-    # disabled: No rotation detection (fastest)
-    # osd_only: Use Tesseract OSD to detect and fix rotation once
-    # osd_fallback: OSD + retry at 90°/270° if confidence < threshold
-    OCR_ROTATION_CONFIDENCE_THRESHOLD: float = 0.7  # Trigger fallback if below this
-    OCR_ROTATION_FALLBACK_ANGLES: list[int] = [90, 270]  # 90° first (NA standard: top→bottom), 270° fallback
+    OCR_LLM_MAX_TITLES: int = 30  # Maximum titles to extract per image
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == "changethis":
