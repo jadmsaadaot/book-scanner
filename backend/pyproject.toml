@@ -21,7 +21,7 @@ dependencies = [
     "bcrypt==4.3.0",
     "pydantic-settings<3.0.0,>=2.2.1",
     # Pin sentry-sdk to a specific version to avoid dependency resolution issues
-    "sentry-sdk[fastapi]==2.18.0",
+    "sentry-sdk[fastapi]==2.45.0",
     "pyjwt<3.0.0,>=2.8.0",
     # Book scanner dependencies
     "pytesseract<1.0.0,>=0.3.10",
